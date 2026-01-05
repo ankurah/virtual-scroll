@@ -8,6 +8,9 @@ description = "Platform-agnostic virtual scroll state machine with pagination"
 
 [features]
 default = []
+# Platform features (empty - derive macro generates platform-specific code)
+uniffi = []
+wasm = []
 
 [dependencies]
 # Core has no dependencies - it's a pure state machine

@@ -110,21 +110,51 @@ let selection = manager.update_filter("room = 'abc' AND text LIKE '%search%'", t
 live_query.update_selection(selection);
 ```
 
-### Derive Macro (Typed Wrappers)
+### Attribute Macro (Typed Wrappers)
 
+The `generate_scroll_manager!` macro is applied in the **bindings crate** (not the model crate), keeping the model platform-agnostic:
+
+**In wasm-bindings/src/lib.rs:**
 ```rust
-#[derive(Model, VirtualScroll)]
-#[virtual_scroll(timestamp_field = "timestamp")]
-pub struct Message {
-    pub text: YrsString,
-    pub timestamp: LWW<i64>,
-    // ...
-}
+use virtual_scroll_derive::generate_scroll_manager;
+
+// Re-export from model crate
+pub use ankurah_template_model::*;
+
+// Generate WASM scroll manager in bindings crate
+generate_scroll_manager!(
+    Message,           // Model type from model crate
+    MessageView,       // View type
+    MessageLiveQuery,  // LiveQuery type
+    timestamp_field = "timestamp"
+);
 ```
 
+**In rn-bindings/src/lib.rs:**
+```rust
+use virtual_scroll_derive::generate_scroll_manager;
+
+// Re-export from model crate
+pub use ankurah_rn_model::*;
+
+// Generate UniFFI scroll manager in bindings crate
+generate_scroll_manager!(
+    Message,
+    MessageView,
+    MessageLiveQuery,
+    timestamp_field = "timestamp"
+);
+```
+
+**Benefits:**
+- Model crate stays platform-agnostic (no virtual-scroll dependency)
+- Bindings crates choose which models get scroll managers
+- Platform features (`wasm` vs `uniffi`) are controlled by bindings crate
+- Generated code lives where it belongs (platform-specific bindings)
+
 Generates:
-- `MessageScrollManager` for UniFFI (React Native)
-- `MessageScrollManager` for WASM (browser)
+- `MessageScrollManager` for UniFFI (React Native) when `uniffi` feature enabled
+- `MessageScrollManager` for WASM (browser) when `wasm` feature enabled
 
 Both hold a reference to the `MessageLiveQuery` and wire scroll events to selection updates.
 
