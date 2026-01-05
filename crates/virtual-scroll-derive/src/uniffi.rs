@@ -121,11 +121,17 @@ fn generate_impl(
                 core.on_results(count as usize, oldest_timestamp, newest_timestamp);
             }
 
-            /// Get items from the LiveQuery
+            /// Get items in display order (oldest first for chronological view)
             ///
-            /// This delegates to the underlying LiveQuery.
+            /// Items are automatically reversed when needed based on scroll mode.
             pub fn items(&self) -> Vec<std::sync::Arc<#view_type>> {
-                self.live_query.items()
+                let items = self.live_query.items();
+                let core = self.core.lock().unwrap();
+                if core.should_reverse_for_display() {
+                    items.into_iter().rev().collect()
+                } else {
+                    items
+                }
             }
 
             /// Jump to live mode (most recent content)

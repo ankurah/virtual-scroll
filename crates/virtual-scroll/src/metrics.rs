@@ -48,3 +48,19 @@ pub struct ScrollMetrics {
     /// Current result count from query
     pub result_count: usize,
 }
+
+/// Request from scroll manager for platform to trigger a load
+///
+/// When `on_scroll` returns this, the platform should:
+/// 1. Pick an anchor item at approximately `anchor_offset` pixels from the relevant edge
+/// 2. Record the anchor's Y position
+/// 3. Call `load_with_anchor(anchor_timestamp, direction)`
+#[derive(Clone, Copy, Debug)]
+pub struct LoadRequest {
+    /// Direction of pagination
+    pub direction: LoadDirection,
+    /// Suggested offset from viewport edge to pick anchor (in pixels)
+    /// For backward: offset from bottom of viewport
+    /// For forward: offset from top of viewport
+    pub anchor_offset: f64,
+}

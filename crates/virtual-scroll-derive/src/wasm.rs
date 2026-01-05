@@ -91,7 +91,8 @@ fn generate_impl(
 
                 // If a new selection is needed, update the LiveQuery
                 if let Some(selection) = new_selection {
-                    let _ = self.live_query.update_selection(selection).await;
+                    let empty_args = ::wasm_bindgen::JsValue::from(::ankurah::derive_deps::js_sys::Array::new());
+                    let _ = self.live_query.update_selection(selection, &empty_args).await;
                 }
             }
 
@@ -107,10 +108,16 @@ fn generate_impl(
                 core.on_results(count as usize, oldest_timestamp, newest_timestamp);
             }
 
-            /// Get items from the LiveQuery
+            /// Get items in display order (oldest first for chronological view)
             #[wasm_bindgen(getter)]
             pub fn items(&self) -> Vec<#view_type> {
-                self.live_query.items()
+                let items = self.live_query.items();
+                let core = self.core.borrow();
+                if core.should_reverse_for_display() {
+                    items.into_iter().rev().collect()
+                } else {
+                    items
+                }
             }
 
             /// Jump to live mode (most recent content)
@@ -120,7 +127,8 @@ fn generate_impl(
                     let mut core = self.core.borrow_mut();
                     core.jump_to_live()
                 };
-                let _ = self.live_query.update_selection(selection).await;
+                let empty_args = ::wasm_bindgen::JsValue::from(::ankurah::derive_deps::js_sys::Array::new());
+                let _ = self.live_query.update_selection(selection, &empty_args).await;
             }
 
             /// Update the base filter predicate
@@ -130,7 +138,8 @@ fn generate_impl(
                     let mut core = self.core.borrow_mut();
                     core.update_filter(&predicate, reset_continuation)
                 };
-                let _ = self.live_query.update_selection(selection).await;
+                let empty_args = ::wasm_bindgen::JsValue::from(::ankurah::derive_deps::js_sys::Array::new());
+                let _ = self.live_query.update_selection(selection, &empty_args).await;
             }
 
             /// Get the current scroll mode
