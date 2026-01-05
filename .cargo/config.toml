@@ -1,0 +1,7 @@
+
+[patch.crates-io]
+ankurah = { path = "../ankurah/ankurah" }
+ankql = { path = "../ankurah/ankql" }
+ankurah-proto = { path = "../ankurah/proto" }
+ankurah-signals = { path = "../ankurah/signals" }
+ankurah-storage-sled = { path = "../ankurah/storage/sled" }

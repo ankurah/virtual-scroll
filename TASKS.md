@@ -11,14 +11,46 @@ This means:
 - Browser wrapper: Anchor selection, position measurement, scroll adjustment
 - RN wrapper: Just enables `maintainVisibleContentPosition` prop
 
+**UniFFI Note**: The UniFFI flavor of the derive macro will need to create signal wrappers for reactive properties. It may be able to use the existing signal macro in Ankurah.
+
 ---
 
-## Phase 1: Fresh Start ✅ (Do First)
+## Current Progress (January 2026)
+
+### Completed ✅
+- Core Rust implementation (`crates/virtual-scroll/src/lib.rs`)
+- WASM bindings (`playwright-tests/wasm-bindings/`)
+- React test harness (`playwright-tests/react-app/`)
+- Fixed item ordering for chat-style display (oldest at top, newest at bottom)
+- Fixed WASM type exports (properties vs methods)
+- Deterministic test environment (800x600 viewport, 400px container)
+- Visual debugging infrastructure (status bar, test messages)
+
+### Playwright Test Suites Created
+- `initial-load.spec.ts` ✅ - 8 tests for initial load and live mode
+- `threshold.spec.ts` ✅ - 6 tests for exact pixel threshold behavior
+- `backward-pagination.spec.ts` ✅ - 7 tests for backward pagination
+- `forward-pagination.spec.ts` ✅ - 8 tests for forward pagination
+- `scroll-stability.spec.ts` ✅ - Pixel-perfect position stability tests
+- `edge-cases.spec.ts` ✅ - Boundary conditions and unusual scenarios
+- `varied-heights.spec.ts` 🚧 - Tests with variable item heights (in progress)
+- `stress.spec.ts` 📋 - Rapid scrolling and stress tests (planned)
+
+### Next Steps
+1. Finish remaining test files
+2. Run all tests and fix any failures
+3. Integrate into react-native-template app
+4. Manual iOS testing
+5. UniFFI wrapper generation (needs signal wrapper consideration)
+
+---
+
+## Phase 1: Fresh Start ✅ (COMPLETED)
 
 ### Clean Slate
-- [ ] Delete current `manager.rs` implementation (keep skeleton)
-- [ ] Quarantine derive macro (keep for reference - monomorphization still needed)
-- [ ] Keep `metrics.rs` and `query.rs` types (review for compatibility)
+- [x] Delete current `manager.rs` implementation (keep skeleton)
+- [x] Quarantine derive macro (keep for reference - monomorphization still needed)
+- [x] Keep `metrics.rs` and `query.rs` types (review for compatibility)
 
 ### Faithful TypeScript Port Reference
 Study original ChatScrollManager.ts (preserved in this doc):
@@ -68,10 +100,10 @@ Study original ChatScrollManager.ts (preserved in this doc):
 - [ ] `test_display_order_backward_mode` - DESC results reversed for display
 - [ ] `test_display_order_forward_mode` - ASC results NOT reversed
 
-### CRITICAL: Pixel-Perfect Boundary Tests
-These tests validate the core promise: scroll position stability at pagination boundaries.
+### CRITICAL: Pixel-Perfect Boundary Tests ✅
+These tests are now covered by Playwright tests in `scroll-stability.spec.ts`:
 
-- [ ] `test_backward_pixel_perfect_boundary`
+- [x] `test_backward_pixel_perfect_boundary` → scroll-stability.spec.ts
   ```
   Setup:
   1. Create mock viewport with items at known Y positions [A@100, B@200, C@300, D@400, E@500]
