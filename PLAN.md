@@ -1,337 +1,297 @@
 # Virtual Scroll Implementation Plan
 
-## Crate Structure
+## Current State vs Target
+
+### Current Implementation
+The current implementation is **partially complete but architecturally flawed**:
+- Rust core uses `oldest_timestamp`/`newest_timestamp` directly as continuation points
+- This ignores the anchor selection problem - platform layer should pick the anchor
+- Scroll position stability is handled ad-hoc in TypeScript wrappers
+- No spacer management
+
+### Target Implementation
+- **Rust**: Query construction + state tracking + load triggering
+- **Platform**: Anchor selection + position measurement + scroll adjustment + spacers
+- Clear API boundary between the two
+
+## Crate Structure (Unchanged)
 
 ```
 virtual-scroll/
 ├── Cargo.toml                  # Workspace root
-├── SPEC.md                     # Overarching vision
-├── PLAN.md                     # This file - implementation details
-├── TASKS.md                    # Task tracking
+├── SPEC.md
+├── PLAN.md
+├── TASKS.md
 ├── crates/
-│   ├── virtual-scroll/         # Core crate (no dependencies)
-│   │   ├── Cargo.toml
+│   ├── virtual-scroll/         # Core crate
 │   │   └── src/
 │   │       ├── lib.rs          # Public API
-│   │       ├── metrics.rs      # ScrollMode, ScrollInput, ScrollMetrics
+│   │       ├── metrics.rs      # ScrollMode, ScrollInput, LoadRequest
 │   │       ├── query.rs        # PaginatedSelection builder
 │   │       └── manager.rs      # ScrollManager state machine
 │   └── virtual-scroll-derive/  # Derive macro crate
-│       ├── Cargo.toml
 │       └── src/
-│           ├── lib.rs          # #[derive(VirtualScroll)]
+│           ├── lib.rs          # generate_scroll_manager! macro
 │           ├── uniffi.rs       # UniFFI wrapper generation
 │           └── wasm.rs         # WASM wrapper generation
-└── tests/                      # Integration tests
-    ├── query_tests.rs
-    └── pagination_tests.rs
 ```
 
-## Core Types
+## Core API Changes Required
 
-### metrics.rs
+### New Types in metrics.rs
 
 ```rust
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
-pub enum ScrollMode {
-    #[default]
-    Live,      // At latest, real-time updates
-    Backward,  // Paginating to older content
-    Forward,   // Paginating to newer content
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum LoadDirection {
-    Backward,
-    Forward,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ScrollInput {
-    pub offset: f64,
-    pub content_height: f64,
-    pub viewport_height: f64,
-    pub scroll_delta: f64,
-    pub user_initiated: bool,
-}
-
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ScrollMetrics {
-    pub top_gap: f64,
-    pub bottom_gap: f64,
-    pub min_buffer: f64,
-    pub result_count: usize,
+/// Request from Rust for platform to trigger a load
+#[derive(Clone, Copy, Debug)]
+pub struct LoadRequest {
+    /// Direction of pagination
+    pub direction: LoadDirection,
+    /// Suggested anchor offset from viewport edge (pixels)
+    /// Platform should pick an item at approximately this distance
+    pub anchor_offset: f64,
 }
 ```
 
-### query.rs
+### manager.rs API Changes
 
 ```rust
-pub struct PaginatedSelection {
-    base_predicate: String,
-    timestamp_field: String,
-    limit: usize,
-    continuation: Option<Continuation>,
-}
-
-struct Continuation {
-    anchor_timestamp: i64,
-    direction: LoadDirection,
-}
-
-impl PaginatedSelection {
-    pub fn new(base: &str, ts_field: &str, limit: usize) -> Self;
-    pub fn update_base(&mut self, predicate: &str, reset_continuation: bool);
-    pub fn set_continuation(&mut self, ts: i64, dir: LoadDirection);
-    pub fn clear_continuation(&mut self);
-    pub fn build(&self) -> String;
-}
-```
-
-### manager.rs
-
-```rust
-pub struct ScrollManager {
-    mode: ScrollMode,
-    loading: Option<LoadDirection>,
-    selection: PaginatedSelection,
-    metrics: ScrollMetrics,
-    at_earliest: bool,
-    at_latest: bool,
-    // Config
-    min_buffer_ratio: f64,
-    query_size_ratio: f64,
-    estimated_row_height: f64,
-    viewport_height: f64,
-}
-
 impl ScrollManager {
-    pub fn new(base_predicate: &str, ts_field: &str, viewport_height: f64) -> Self;
-    pub fn on_scroll(&mut self, input: ScrollInput) -> Option<String>;
-    pub fn on_results(&mut self, count: usize, oldest_ts: Option<i64>, newest_ts: Option<i64>);
-    pub fn update_filter(&mut self, predicate: &str, reset: bool) -> String;
-    pub fn jump_to_live(&mut self) -> String;
-    pub fn selection(&self) -> String;
-    pub fn should_auto_scroll(&self) -> bool;
-    // Getters
-    pub fn mode(&self) -> ScrollMode;
-    pub fn is_loading(&self) -> bool;
-    pub fn metrics(&self) -> &ScrollMetrics;
-    pub fn at_earliest(&self) -> bool;
-    pub fn at_latest(&self) -> bool;
+    /// Process scroll event.
+    /// Returns Some(LoadRequest) if platform should trigger pagination.
+    /// Returns None if no action needed.
+    /// NOTE: Does NOT block during loads - Ankurah handles concurrency.
+    pub fn on_scroll(&mut self, input: ScrollInput) -> Option<LoadRequest>;
+
+    /// Platform selected an anchor and is ready to load.
+    /// Returns the selection string to use for the query.
+    pub fn load_with_anchor(&mut self, anchor_timestamp: i64, direction: LoadDirection) -> String;
 }
 ```
 
-## Derive Macro Design
+**Key changes**:
+1. `on_scroll` returns `LoadRequest` (not selection string directly)
+2. Platform picks anchor, calls `load_with_anchor(timestamp, direction)`
+3. `load_with_anchor` returns the selection string
+4. **No blocking**: Multiple loads can be in flight. Ankurah's `update_selection` handles concurrency with monotonic application (only latest wins).
 
-### Usage
+### Generated Wrapper Changes
 
+The generated `MessageScrollManager` needs to expose the two-step API:
+
+**WASM:**
 ```rust
-use virtual_scroll_derive::VirtualScroll;
+#[wasm_bindgen]
+impl MessageScrollManager {
+    /// Process scroll event. Returns LoadRequest as JSON if load needed.
+    #[wasm_bindgen(js_name = onScroll)]
+    pub fn on_scroll(&self, ...) -> JsValue;  // JSON of LoadRequest or null
 
-#[derive(Model, VirtualScroll)]
-#[virtual_scroll(timestamp_field = "timestamp")]
-pub struct Message { ... }
+    /// Platform picked an anchor, execute the load.
+    #[wasm_bindgen(js_name = loadWithAnchor)]
+    pub async fn load_with_anchor(&self, anchor_timestamp: i64, direction: String);
+}
 ```
 
-### Generated Code (UniFFI)
-
+**UniFFI:**
 ```rust
-#[derive(uniffi::Object)]
-pub struct MessageScrollManager {
-    core: Mutex<ScrollManager>,
-    live_query: Arc<MessageLiveQuery>,
-}
-
 #[uniffi::export]
 impl MessageScrollManager {
-    #[uniffi::constructor]
-    pub fn new(live_query: Arc<MessageLiveQuery>, viewport_height: f64) -> Arc<Self>;
-
-    pub fn on_scroll(&self, offset: f64, content_height: f64, viewport_height: f64,
-                     scroll_delta: f64, user_initiated: bool);
-
-    pub fn items(&self) -> Vec<Arc<MessageView>>;
-    pub fn jump_to_live(&self);
-    pub fn update_filter(&self, predicate: String, reset: bool);
-
-    pub fn mode(&self) -> String;
-    pub fn should_auto_scroll(&self) -> bool;
+    pub fn on_scroll(&self, ...) -> Option<LoadRequest>;
+    pub fn load_with_anchor(&self, anchor_timestamp: i64, direction: LoadDirection);
 }
 ```
 
-### Generated Code (WASM)
+## Platform Integration Changes
 
-```rust
-#[wasm_bindgen]
-pub struct MessageScrollManager {
-    core: RefCell<ScrollManager>,
-    live_query: MessageLiveQuery,
-}
+### TypeScript ScrollManagerWrapper
 
-#[wasm_bindgen]
-impl MessageScrollManager {
-    #[wasm_bindgen(constructor)]
-    pub fn new(live_query: MessageLiveQuery, viewport_height: f64) -> Self;
-
-    #[wasm_bindgen(js_name = onScroll)]
-    pub fn on_scroll(&self, offset: f64, content_height: f64, viewport_height: f64,
-                     scroll_delta: f64, user_initiated: bool);
-
-    #[wasm_bindgen(getter)]
-    pub fn items(&self) -> Vec<MessageView>;
-
-    pub fn jump_to_live(&self);
-
-    pub fn mode(&self) -> String;
-    pub fn should_auto_scroll(&self) -> bool;
-}
-```
-
-## State Machine Logic
-
-### Pagination Trigger
-
-```
-on_scroll(input):
-    if !user_initiated: return None
-
-    top_gap = input.offset
-    bottom_gap = content_height - offset - viewport_height
-    min_buffer = viewport_height * min_buffer_ratio
-
-    if scroll_delta < 0 && top_gap < min_buffer && !at_earliest && !loading:
-        loading = Some(Backward)
-        selection.set_continuation(oldest_timestamp, Backward)
-        return Some(selection.build())
-
-    if scroll_delta > 0 && bottom_gap < min_buffer && !at_latest && !loading:
-        loading = Some(Forward)
-        selection.set_continuation(newest_timestamp, Forward)
-        return Some(selection.build())
-
-    return None
-```
-
-### Boundary Detection
-
-```
-on_results(count, oldest_ts, newest_ts):
-    loading = None
-
-    // Store timestamps for continuation anchors
-    self.oldest_timestamp = oldest_ts
-    self.newest_timestamp = newest_ts
-
-    // Boundary detection: fewer results than limit = hit boundary
-    at_boundary = count < selection.limit
-
-    match mode:
-        Live | Backward => at_earliest = at_boundary
-        Forward => at_latest = at_boundary
-
-    // Auto-transition to live when reaching latest
-    if mode == Forward && at_latest:
-        jump_to_live()
-```
-
-### Selection String Building
-
-```
-build():
-    let mut query = base_predicate.clone()
-
-    if let Some(cont) = &continuation:
-        let op = match cont.direction:
-            Backward => "<="
-            Forward => ">="
-        query += format!(" AND {} {} {}", timestamp_field, op, cont.anchor_timestamp)
-
-    let order = match continuation.map(|c| c.direction):
-        Some(Forward) => "ASC"
-        _ => "DESC"
-
-    query += format!(" ORDER BY {} {} LIMIT {}", timestamp_field, order, limit)
-    query
-```
-
-## Integration Pattern
-
-### TypeScript (React Native)
+The wrapper needs to handle the two-step flow:
 
 ```typescript
-// In Chat.tsx
-const liveQuery = await messageOps.query(ctx, scrollManager.selection(), []);
-const scrollManager = new MessageScrollManager(liveQuery, viewportHeight);
+class ScrollManagerWrapper {
+    private pendingAnchor: PendingAnchor | null = null;
 
-// FlatList handlers
-onScroll={(e) => {
-    const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
-    scrollManager.onScroll(
-        contentOffset.y,
-        contentSize.height,
-        layoutMeasurement.height,
-        contentOffset.y - lastOffset,
-        userScrolling
-    );
-}}
+    private onScroll() {
+        const loadRequest = this.scrollManager.onScroll(
+            scrollTop, scrollHeight, clientHeight, delta, userScrolling
+        );
 
-// Render
-<FlatList
-    data={scrollManager.items()}
-    // ...
-/>
-```
+        if (loadRequest) {
+            this.startLoad(loadRequest);
+        }
+    }
 
-### TypeScript (Browser)
+    private startLoad(request: LoadRequest) {
+        // 1. Pick anchor based on rendered positions
+        const anchor = this.pickAnchor(request.direction, request.anchorOffset);
+        if (!anchor) {
+            // No suitable anchor found - skip this load
+            // (rare edge case: empty list or all items off-screen)
+            return;
+        }
 
-```typescript
-// Same API, different platform
-const scrollManager = new MessageScrollManager(liveQuery, container.clientHeight);
+        // 2. Save anchor state for scroll adjustment
+        this.pendingAnchor = {
+            id: anchor.item.id,
+            yBefore: this.getAnchorY(anchor.element),
+        };
 
-container.onscroll = () => {
-    scrollManager.onScroll(
-        container.scrollTop,
-        container.scrollHeight,
-        container.clientHeight,
-        container.scrollTop - lastScrollTop,
-        userScrolling
-    );
-};
-```
+        // 3. Execute load with anchor timestamp
+        // NOTE: No blocking - if multiple loads happen, Ankurah handles concurrency
+        this.scrollManager.loadWithAnchor(
+            anchor.item.timestamp,
+            request.direction
+        );
+    }
 
-## Test Strategy
+    private onLiveQueryChange() {
+        // After results render, adjust scroll position
+        if (this.pendingAnchor) {
+            this.adjustScrollForAnchor();
+            this.pendingAnchor = null;
+        }
 
-### Unit Tests (Core)
+        // Update Rust with result metadata
+        this.updateResultState();
+    }
 
-1. **Query construction** - Verify selection strings are built correctly
-2. **Pagination triggers** - Test threshold detection
-3. **Boundary detection** - Test when count < limit
-4. **Mode transitions** - Live → Backward → Forward → Live
-5. **Filter updates** - With/without continuation reset
+    private adjustScrollForAnchor() {
+        const anchorEl = this.findAnchorElement(this.pendingAnchor.id);
+        if (!anchorEl) return;
 
-### Integration Tests
+        const yAfter = this.getAnchorY(anchorEl);
+        const delta = yAfter - this.pendingAnchor.yBefore;
 
-1. **Message ordering** - Verify display order is always chronological
-2. **Rapid scrolling** - Multiple scroll events don't trigger duplicate loads
-3. **Filter change** - Continuation preserved/reset correctly
+        if (Math.abs(delta) > 0.5) {
+            this.container.scrollTop += delta;
+        }
+    }
 
-## Configuration
+    private pickAnchor(direction: LoadDirection, offset: number): Anchor | null {
+        const items = this.scrollManager.items;
+        if (items.length === 0) return null;
 
-```rust
-impl ScrollManager {
-    // Default configuration
-    const DEFAULT_MIN_BUFFER_RATIO: f64 = 0.75;  // Trigger at 75% from edge
-    const DEFAULT_QUERY_SIZE_RATIO: f64 = 3.0;   // Load 3 viewports worth
-    const DEFAULT_ROW_HEIGHT: f64 = 74.0;        // Estimated row height for limit calc
-
-    pub fn with_config(
-        base_predicate: &str,
-        timestamp_field: &str,
-        viewport_height: f64,
-        min_buffer_ratio: f64,
-        query_size_ratio: f64,
-        estimated_row_height: f64,
-    ) -> Self;
+        if (direction === 'backward') {
+            // For backward: pick item `offset` pixels BELOW viewport bottom
+            // This ensures it exists in both old and new result sets
+            return this.findItemAtOffset(items, 'fromBottom', offset);
+        } else {
+            // For forward: pick item `offset` pixels ABOVE viewport top
+            return this.findItemAtOffset(items, 'fromTop', offset);
+        }
+    }
 }
 ```
+
+## Spacer Implementation
+
+### Browser (CSS-based)
+```typescript
+// In container, before items:
+<div className="leading-spacer" style={{ height: leadingSpacer }} />
+
+// After items:
+<div className="trailing-spacer" style={{ height: trailingSpacer }} />
+```
+
+Leading spacer height changes:
+- Initial: 0 (or small fixed amount)
+- After backward load: Adjusted to absorb new item heights (coordinated with scroll adjustment)
+- At earliest boundary: Can be 0
+
+Trailing spacer:
+- Live mode: 0
+- Non-live, not at latest: Small fixed value (e.g., 50px) for "scroll past" affordance
+
+### React Native (FlatList)
+- Use `ListHeaderComponent` for leading spacer
+- Use `ListFooterComponent` for trailing spacer
+- Or use `contentContainerStyle.paddingTop/paddingBottom`
+
+## Test Plan
+
+### Phase 1: Core Rust Tests (Priority)
+
+1. **query_construction_tests.rs**
+   - Live mode selection string
+   - Backward continuation selection string
+   - Forward continuation selection string
+   - Filter update preserves/resets continuation
+
+2. **load_trigger_tests.rs**
+   - LoadRequest generated when topGap < minBuffer (scrolling up)
+   - LoadRequest generated when bottomGap < minBuffer (scrolling down)
+   - No LoadRequest when already loading
+   - No LoadRequest when at boundary
+   - No LoadRequest when not user-initiated scroll
+
+3. **boundary_detection_tests.rs**
+   - count < limit sets at_earliest in backward mode
+   - count < limit sets at_latest in forward mode
+   - at_latest triggers auto-transition to Live mode
+
+4. **anchor_flow_tests.rs**
+   - on_scroll returns LoadRequest
+   - load_with_anchor builds correct query
+   - cancel_load clears loading state
+
+### Phase 2: Platform Integration Tests
+
+Mock platform layer that simulates:
+- Anchor selection (returns predefined timestamps)
+- Scroll adjustment (records adjustments made)
+- Verify full flow works end-to-end
+
+### Phase 3: Visual Tests (Manual)
+
+In both template apps:
+1. Load room with many messages
+2. Scroll up slowly - verify no jumps
+3. Scroll up fast - verify pagination works
+4. Scroll to top (at_earliest) - verify no more loading
+5. Scroll down (forward pagination) - verify return to live
+
+## Migration Path
+
+### Step 1: Update Rust Core API
+- Add `LoadRequest` type
+- Change `on_scroll` return type
+- Add `load_with_anchor` method
+- Add `cancel_load` method
+- Keep old API temporarily for compatibility
+
+### Step 2: Update Generated Wrappers
+- WASM: Add new methods
+- UniFFI: Add new methods
+
+### Step 3: Update Browser Template
+- Rewrite ScrollManagerWrapper with two-step flow
+- Add pendingAnchor state
+- Add pickAnchor function
+- Add scroll adjustment on result change
+- Add spacer elements
+
+### Step 4: Update React Native Template
+- Same changes adapted for FlatList
+- Test anchor measurement in RN
+
+### Step 5: Remove Old API
+- Remove direct selection return from on_scroll
+- Clean up unused code
+
+## Open Design Questions
+
+### Q1: Anchor Not In New Results
+What if the anchor item isn't in the new result set? (Rare, but possible with concurrent deletes)
+- **Option A**: Fall back to no adjustment (may jump)
+- **Option B**: Use nearest available item as backup anchor
+- **Likely**: Option A is fine, this is a rare edge case
+
+### Q2: Spacer Implementation
+Deferred to platform integration. Options per platform:
+- **Browser**: CSS div elements, padding, or `overflow-anchor` CSS
+- **React Native**: FlatList `ListHeaderComponent`/`ListFooterComponent` or `contentContainerStyle`
+
+### Q3: Inverted FlatList
+Need to test how `inverted={true}` interacts with `maintainVisibleContentPosition`.
+Many chat UIs use inverted lists. This is a platform integration test item.

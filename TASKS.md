@@ -1,81 +1,212 @@
 # Virtual Scroll Tasks
 
-## Phase 1: Core Crate Setup ✅
-- [x] Create workspace structure
-- [x] Create `virtual-scroll` crate
-- [x] Create `virtual-scroll-derive` crate (stub)
-- [x] Write SPEC.md
-- [x] Write PLAN.md
-- [x] Write TASKS.md
+## Key Finding: Platform-Native Scroll Stability
 
-## Phase 2: Core Implementation ✅
-- [x] Implement `metrics.rs`
-  - [x] `ScrollMode` enum
-  - [x] `LoadDirection` enum
-  - [x] `ScrollInput` struct
-  - [x] `ScrollMetrics` struct
-- [x] Implement `query.rs`
-  - [x] `PaginatedSelection` struct
-  - [x] `Continuation` struct
-  - [x] `build()` method for selection strings
-  - [x] `update_base()` with reset option
-- [x] Implement `manager.rs`
-  - [x] `ScrollManager` struct
-  - [x] `new()` constructor
-  - [x] `on_scroll()` - pagination trigger logic
-  - [x] `on_results()` - boundary detection
-  - [x] `update_filter()` - base predicate change
-  - [x] `jump_to_live()` - return to live mode
-  - [x] Configuration constants
+**React Native**: Has native `maintainVisibleContentPosition` prop that automatically handles scroll position stability when items are added. We do NOT need anchor-based logic for RN.
 
-## Phase 3: Unit Tests ✅ (inline in modules)
-- [x] Query tests (in `query.rs`)
-  - [x] Live mode selection string
-  - [x] Backward pagination selection string
-  - [x] Forward pagination selection string
-  - [x] Filter update preserves continuation
-  - [x] Filter update resets continuation
-- [x] Pagination tests (in `manager.rs`)
-  - [x] Backward trigger when near top
-  - [x] No trigger when already loading
-  - [x] Boundary detection (count < limit)
-  - [x] Auto-transition to live when at_latest
-  - [x] Jump to live
-  - [x] Filter update (preserve and reset)
+**Browser**: Must implement anchor-based scroll adjustment manually (as in original ChatScrollManager.ts).
 
-## Phase 4: Derive Macro
-- [ ] Parse `#[virtual_scroll(timestamp_field = "...")]` attribute
-- [ ] Implement UniFFI wrapper generation
-  - [ ] Generate `{Model}ScrollManager` struct
-  - [ ] Generate `#[uniffi::export]` impl block
-  - [ ] Wire to LiveQuery
-- [ ] Implement WASM wrapper generation
-  - [ ] Generate `{Model}ScrollManager` struct
-  - [ ] Generate `#[wasm_bindgen]` impl block
-  - [ ] Wire to LiveQuery
-
-## Phase 5: Integration
-- [ ] Add dependency to `ankurah-react-native-template/model`
-- [ ] Add `#[derive(VirtualScroll)]` to Message model
-- [ ] Update React Native `Chat.tsx` to use `MessageScrollManager`
-- [ ] Remove TypeScript `ChatScrollManager.ts`
-- [ ] Test in iOS simulator
-- [ ] Add dependency to `ankurah-react-sled-template/model`
-- [ ] Add `#[derive(VirtualScroll)]` to Message model
-- [ ] Update browser `Chat.tsx` to use `MessageScrollManager`
-- [ ] Remove TypeScript `ChatScrollManager.ts`
-- [ ] Test in browser
-
-## Phase 6: Polish
-- [ ] Add debug metrics output
-- [ ] Document public API
-- [ ] Add CI workflow
-- [ ] Publish to crates.io (optional)
+This means:
+- Rust core handles: Query construction, mode tracking, boundary detection, load triggering
+- Browser wrapper: Anchor selection, position measurement, scroll adjustment
+- RN wrapper: Just enables `maintainVisibleContentPosition` prop
 
 ---
 
-## Current Focus
+## Phase 1: Fresh Start ✅ (Do First)
 
-**Next**: Phase 4 - Derive Macro
+### Clean Slate
+- [ ] Delete current `manager.rs` implementation (keep skeleton)
+- [ ] Quarantine derive macro (keep for reference - monomorphization still needed)
+- [ ] Keep `metrics.rs` and `query.rs` types (review for compatibility)
 
-The core crate is complete with all unit tests passing (13 tests). Next step is implementing the derive macro to generate typed `{Model}ScrollManager` wrappers for UniFFI and WASM.
+### Faithful TypeScript Port Reference
+Study original ChatScrollManager.ts (preserved in this doc):
+- Anchor selection via DOM measurement
+- Position recording before/after query
+- Scroll adjustment via delta
+
+---
+
+## Phase 2: Core Rust Implementation (Test-Driven)
+
+### Query Builder Tests
+- [ ] `test_live_mode_selection` - DESC, no continuation
+- [ ] `test_backward_continuation` - DESC, timestamp <= anchor
+- [ ] `test_forward_continuation` - ASC, timestamp >= anchor
+- [ ] `test_filter_update_preserves_continuation`
+- [ ] `test_filter_update_resets_continuation`
+
+### Load Trigger Tests
+- [ ] `test_backward_trigger_near_top` - Returns LoadRequest when scrolling up near top
+- [ ] `test_forward_trigger_near_bottom` - Returns LoadRequest when scrolling down near bottom
+- [ ] `test_trigger_allowed_during_load` - Does NOT block (Ankurah handles concurrency)
+- [ ] `test_no_trigger_at_boundary` - Doesn't trigger when at earliest/latest
+- [ ] `test_no_trigger_momentum_scroll` - Only triggers on user-initiated scroll
+- [ ] `test_no_gratuitous_triggers` - Thresholds prevent excessive triggers
+- [ ] `test_anchor_offset_calculation` - LoadRequest contains correct anchor offset
+
+### Boundary Detection Tests
+- [ ] `test_at_earliest_backward_mode` - count < limit sets at_earliest
+- [ ] `test_at_latest_forward_mode` - count < limit sets at_latest
+- [ ] `test_auto_transition_to_live` - Forward mode → Live when at_latest
+- [ ] `test_live_mode_always_at_latest` - Live mode is always at_latest
+
+### Mode Transition Tests
+- [ ] `test_live_to_backward` - Scroll up transitions to Backward
+- [ ] `test_backward_to_forward` - (via manual filter or jump)
+- [ ] `test_forward_to_live` - Auto-transition when reaching latest
+- [ ] `test_jump_to_live` - Explicit jump clears continuation
+
+### Anchor Flow Tests (Two-Step API)
+- [ ] `test_on_scroll_returns_load_request` - Not selection string
+- [ ] `test_load_with_anchor_builds_query` - Uses provided timestamp
+- [ ] `test_multiple_loads_allowed` - No blocking, Ankurah handles concurrency
+
+### Display Order Tests
+- [ ] `test_display_order_live_mode` - DESC results reversed for display
+- [ ] `test_display_order_backward_mode` - DESC results reversed for display
+- [ ] `test_display_order_forward_mode` - ASC results NOT reversed
+
+### CRITICAL: Pixel-Perfect Boundary Tests
+These tests validate the core promise: scroll position stability at pagination boundaries.
+
+- [ ] `test_backward_pixel_perfect_boundary`
+  ```
+  Setup:
+  1. Create mock viewport with items at known Y positions [A@100, B@200, C@300, D@400, E@500]
+  2. Configure trigger threshold at topGap < 150px
+  3. Scroll to topGap = 151px (1 pixel BEFORE trigger)
+  4. Record exact Y position of each item
+
+  Execute:
+  5. Scroll 1 more pixel (topGap = 150px, triggers backward load)
+  6. Load completes, new items [X, Y, Z] prepended
+  7. Scroll adjustment applied
+
+  Assert:
+  8. Item A is now at Y = 101 (exactly 1 pixel different)
+  9. Item B is now at Y = 201 (exactly 1 pixel different)
+  10. Items X, Y, Z are above viewport (off-screen)
+  11. No item moved more than 1 pixel from its pre-scroll position
+  ```
+
+- [ ] `test_forward_pixel_perfect_boundary`
+  ```
+  Setup:
+  1. Create mock viewport in non-live mode with items [A@100, B@200, C@300, D@400, E@500]
+  2. Configure trigger threshold at bottomGap < 150px
+  3. Scroll to bottomGap = 151px (1 pixel BEFORE trigger)
+  4. Record exact Y position of each item
+
+  Execute:
+  5. Scroll 1 more pixel (bottomGap = 150px, triggers forward load)
+  6. Load completes, new items [F, G, H] appended
+  7. Scroll adjustment applied
+
+  Assert:
+  8. Item E is now at Y = 499 (exactly 1 pixel different)
+  9. All visible items moved exactly 1 pixel
+  10. New items F, G, H are below viewport
+  ```
+
+- [ ] `test_boundary_no_jump_with_variable_heights`
+  ```
+  Same as above but with items of varying heights:
+  [A: 50px tall, B: 120px tall, C: 74px tall, D: 200px tall]
+  Verifies that anchor-based adjustment works regardless of item sizes
+  ```
+
+---
+
+## Phase 3: Core Implementation
+
+After tests are written, implement:
+- [ ] `metrics.rs` - ScrollMode, LoadDirection, ScrollInput, LoadRequest
+- [ ] `query.rs` - PaginatedSelection with build()
+- [ ] `manager.rs` - ScrollManager with two-step API
+
+Make tests pass.
+
+---
+
+## Phase 4: Integration Tests (Simulated Platform)
+
+- [ ] Full backward pagination flow simulation
+- [ ] Full forward pagination flow simulation
+- [ ] Jump to live flow
+- [ ] Filter change flow
+- [ ] Rapid scroll handling
+
+---
+
+## Phase 5: Derive Macro (After Core is Solid)
+
+- [ ] Generate WASM wrapper with two-step API
+- [ ] Generate UniFFI wrapper with two-step API
+- [ ] Test generated code compiles
+
+---
+
+## Phase 6: Platform Integration (Last)
+
+### Browser Template
+- [ ] Port ScrollManagerWrapper with anchor logic
+- [ ] Test in browser
+
+### React Native Template
+- [ ] Simpler wrapper using `maintainVisibleContentPosition`
+- [ ] Test in iOS simulator
+
+---
+
+## Reference: Original ChatScrollManager.ts Key Methods
+
+```typescript
+// Anchor selection - finds item at stepBack offset from opposite edge
+private getContinuationAnchor(direction: 'backward' | 'forward', messageList: MessageView[]) {
+    // For backward: pick item stepBack BELOW viewport bottom
+    // For forward: pick item stepBack ABOVE viewport top
+    // Returns { el: HTMLElement, msg: MessageView }
+}
+
+// Load execution with scroll stability
+async loadMore(direction: 'backward' | 'forward') {
+    const anchor = this.getContinuationAnchor(direction, messageList);
+    const { y: yBefore } = offsetToParent(anchor.el);
+
+    await this.messages.updateSelection(/* query using anchor.msg.timestamp */);
+
+    const { y: yAfter } = offsetToParent(anchor.el);
+    const delta = yAfter - yBefore;
+    this.container.scrollTop += delta;  // Pixel-perfect adjustment
+}
+```
+
+---
+
+## Design Decisions (Resolved)
+
+1. **Anchor Selection**: Platform picks anchor (not Rust)
+2. **Scroll Adjustment**: Platform computes and applies (not Rust)
+3. **Spacers**: Defer to platform integration
+4. **RN Stability**: Use native `maintainVisibleContentPosition` prop
+5. **Two-Step API**: `on_scroll()` → `LoadRequest` → platform picks anchor → `load_with_anchor(timestamp)`
+6. **No Blocking**: Do NOT block loads. Ankurah's `update_selection` handles concurrency (monotonic application)
+7. **Threshold Design**: Avoid gratuitous triggers via proper threshold values, not by blocking
+
+---
+
+## Open Questions
+
+1. **RN maintainVisibleContentPosition bugs**: Rapid updates (<200ms) may cause issues. Need to test.
+2. **Inverted FlatList**: Chat UIs often use `inverted={true}`. Does this affect maintainVisibleContentPosition?
+3. **Spacers in RN**: How to implement leading/trailing spacers with FlatList?
+
+---
+
+## Sources
+
+- [React Native ScrollView maintainVisibleContentPosition](https://reactnative.dev/docs/scrollview)
+- [GetStream flat-list-mvcp](https://github.com/GetStream/flat-list-mvcp) - Android polyfill for older RN
+- [Known bug: rapid updates](https://github.com/facebook/react-native/issues/53542) - RN 0.81.1 issue
