@@ -1,0 +1,113 @@
+#! /bin/bash
+
+# Manage local ankurah development dependencies
+# Commands:
+#   enable  - Use local ankurah repo via cargo patch
+#   disable - Use published ankurah crates
+#   bump <version> - Update all ankurah/ankql deps to specified version
+#   (no arg) - Show current status
+
+set -euo pipefail
+
+mkdir -p .cargo
+touch .cargo/config.toml
+
+CONFIG_FILE=".cargo/config.toml"
+PATCH_CONTENT='[patch.crates-io]
+ankurah = { path = "../ankurah/ankurah" }
+ankql = { path = "../ankurah/ankql" }
+ankurah-proto = { path = "../ankurah/proto" }
+ankurah-signals = { path = "../ankurah/signals" }
+ankurah-storage-sled = { path = "../ankurah/storage/sled" }
+ankurah-storage-indexeddb-wasm = { path = "../ankurah/storage/indexeddb-wasm" }'
+
+show_status() {
+    if grep -q "\[patch.crates-io\]" "$CONFIG_FILE"; then
+        echo "Status: ENABLED - Using local ankurah dependencies"
+    else
+        echo "Status: DISABLED - Using published ankurah crates"
+    fi
+}
+
+show_usage() {
+    echo "Usage: $0 [command]"
+    echo ""
+    echo "Commands:"
+    echo "  enable         - Use local ankurah dependencies"
+    echo "  disable        - Use published ankurah crates"
+    echo "  bump [version] - Update all ankurah/ankql deps (default: from ../ankurah/RELEASES)"
+    echo "  (no arg)       - Show current status"
+    echo ""
+}
+
+do_bump() {
+    local version="$1"
+    echo "Updating ankurah/ankql dependencies to version $version"
+
+    # Find all Cargo.toml files in the workspace (excluding target/node_modules)
+    local manifests=$(find . -name "Cargo.toml" -not -path "./target/*" -not -path "*/node_modules/*" -type f)
+
+    for manifest in $manifests; do
+        # Skip root workspace Cargo.toml
+        [[ "$manifest" == "./Cargo.toml" ]] && continue
+
+        # Check if this manifest has ankurah or ankql dependencies
+        if grep -qE "^ankurah|^ankql" "$manifest" 2>/dev/null; then
+            # Update inline version: ankurah* = "x.y.z" -> ankurah* = "=new_version"
+            sed -i '' -E "s/(ankurah[a-z0-9_-]*[[:space:]]*=[[:space:]]*\")[^\"]+\"/\1=$version\"/g" "$manifest"
+            sed -i '' -E "s/(ankql[[:space:]]*=[[:space:]]*\")[^\"]+\"/\1=$version\"/g" "$manifest"
+
+            # Update table version: ankurah* = { version = "x.y.z" } -> ankurah* = { version = "=new_version" }
+            sed -i '' -E "s/(ankurah[a-z0-9_-]*[[:space:]]*=[[:space:]]*\{[^}]*version[[:space:]]*=[[:space:]]*\")[^\"]+\"/\1=$version\"/g" "$manifest"
+            sed -i '' -E "s/(ankql[[:space:]]*=[[:space:]]*\{[^}]*version[[:space:]]*=[[:space:]]*\")[^\"]+\"/\1=$version\"/g" "$manifest"
+
+            echo "  Updated: $manifest"
+        fi
+    done
+
+    echo "Done. Run 'cargo check' to verify."
+}
+
+if [ "${1:-}" = "enable" ]; then
+    # Check if patch section already exists
+    if grep -q "\[patch.crates-io\]" "$CONFIG_FILE"; then
+        echo "Patch section already exists in $CONFIG_FILE"
+        exit 0
+    fi
+
+    # Add patch section
+    echo -e "\n$PATCH_CONTENT" >> "$CONFIG_FILE"
+    echo "Enabled local ankurah dependencies in $CONFIG_FILE"
+
+elif [ "${1:-}" = "disable" ]; then
+    # Create temporary file
+    TMP_FILE=$(mktemp)
+
+    # Remove patch section and strip trailing blank lines
+    sed '/^\[patch.crates-io\]/,/^[[:space:]]*$/d' "$CONFIG_FILE" | sed -e :a -e '/^\n*$/N;/\n$/ba' -e 'P;D' > "$TMP_FILE"
+
+    # Move temporary file back to original
+    mv "$TMP_FILE" "$CONFIG_FILE"
+    echo "Disabled local ankurah dependencies in $CONFIG_FILE"
+
+elif [ "${1:-}" = "bump" ]; then
+    if [ -z "${2:-}" ]; then
+        # Get version from local ankurah RELEASES file
+        if [ -f "../ankurah/RELEASES" ]; then
+            version=$(head -n 1 ../ankurah/RELEASES | cut -d' ' -f1)
+            echo "Using version $version from ../ankurah/RELEASES"
+        else
+            echo "Error: bump requires a version argument (or ../ankurah/RELEASES must exist)"
+            echo "Usage: $0 bump [version]"
+            exit 1
+        fi
+    else
+        version="$2"
+    fi
+    do_bump "$version"
+
+else
+    show_status
+    echo ""
+    show_usage
+fi

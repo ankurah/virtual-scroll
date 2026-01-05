@@ -1,0 +1,5 @@
+# Tier 1: Derive macro (no internal dependencies)
+ankurah-virtual-scroll-derive
+
+# Tier 2: Main crate (depends on derive)
+ankurah-virtual-scroll

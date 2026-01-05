@@ -1,0 +1,9 @@
+/target
+node_modules/
+playwright-tests/react-app/node_modules/
+playwright-tests/node_modules/
+playwright-tests/wasm-bindings/pkg/
+playwright-tests/test-results/
+playwright-tests/playwright-report/
+.DS_Store
+*.local.md

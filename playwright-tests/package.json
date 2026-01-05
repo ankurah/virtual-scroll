@@ -1,0 +1,17 @@
+{
+  "name": "virtual-scroll-playwright-tests",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build:wasm": "cd wasm-bindings && wasm-pack build --target web --dev",
+    "dev": "cd react-app && npm run dev",
+    "test": "playwright test",
+    "test:ui": "playwright test --ui",
+    "test:debug": "playwright test --debug",
+    "setup": "npm run build:wasm && cd react-app && npm install"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.1"
+  }
+}
