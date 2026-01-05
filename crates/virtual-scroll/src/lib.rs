@@ -13,3 +13,6 @@ mod manager;
 pub use metrics::*;
 pub use query::*;
 pub use manager::*;
+
+// Re-export derive macro for convenience
+pub use virtual_scroll_derive::generate_scroll_manager;

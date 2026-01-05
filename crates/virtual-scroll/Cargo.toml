@@ -14,3 +14,6 @@ wasm = []
 
 [dependencies]
 # Core has no dependencies - it's a pure state machine
+
+# Re-export derive macro for convenience
+virtual-scroll-derive = { path = "../virtual-scroll-derive" }

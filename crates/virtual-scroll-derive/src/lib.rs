@@ -30,26 +30,34 @@ mod wasm;
 
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse::{Parse, ParseStream}, parse_macro_input, Ident, LitStr, Token};
+use syn::{parse::{Parse, ParseStream}, parse_macro_input, Ident, LitStr, Path, Token};
 
 /// Configuration parsed from generate_scroll_manager! macro arguments
 struct ScrollManagerConfig {
-    model_name: Ident,
-    view_name: Ident,
-    livequery_name: Ident,
+    model_path: Path,
+    view_path: Path,
+    livequery_path: Path,
     timestamp_field: String,
+}
+
+impl ScrollManagerConfig {
+    /// Get the simple name from a path (last segment)
+    fn model_name(&self) -> &Ident {
+        &self.model_path.segments.last().unwrap().ident
+    }
 }
 
 impl Parse for ScrollManagerConfig {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         // Parse: Model, View, LiveQuery, timestamp_field = "field"
-        let model_name: Ident = input.parse()?;
+        // Paths can be simple (Message) or qualified (my_crate::Message)
+        let model_path: Path = input.parse()?;
         input.parse::<Token![,]>()?;
 
-        let view_name: Ident = input.parse()?;
+        let view_path: Path = input.parse()?;
         input.parse::<Token![,]>()?;
 
-        let livequery_name: Ident = input.parse()?;
+        let livequery_path: Path = input.parse()?;
         input.parse::<Token![,]>()?;
 
         // Parse timestamp_field = "value"
@@ -61,9 +69,9 @@ impl Parse for ScrollManagerConfig {
         let timestamp_field: LitStr = input.parse()?;
 
         Ok(Self {
-            model_name,
-            view_name,
-            livequery_name,
+            model_path,
+            view_path,
+            livequery_path,
             timestamp_field: timestamp_field.value(),
         })
     }
@@ -94,17 +102,17 @@ impl Parse for ScrollManagerConfig {
 pub fn generate_scroll_manager(input: TokenStream) -> TokenStream {
     let config = parse_macro_input!(input as ScrollManagerConfig);
 
-    let model_name = &config.model_name;
+    let model_name = config.model_name();
     let scroll_manager_name = format_ident!("{}ScrollManager", model_name);
-    let view_name = &config.view_name;
-    let livequery_name = &config.livequery_name;
+    let view_path = &config.view_path;
+    let livequery_path = &config.livequery_path;
     let timestamp_field = &config.timestamp_field;
 
     // Generate UniFFI implementation
-    let uniffi_impl = uniffi::generate(&scroll_manager_name, view_name, livequery_name, timestamp_field);
+    let uniffi_impl = uniffi::generate_with_paths(&scroll_manager_name, view_path, livequery_path, timestamp_field);
 
     // Generate WASM implementation
-    let wasm_impl = wasm::generate(&scroll_manager_name, view_name, livequery_name, timestamp_field);
+    let wasm_impl = wasm::generate_with_paths(&scroll_manager_name, view_path, livequery_path, timestamp_field);
 
     let expanded = quote! {
         #uniffi_impl

@@ -4,13 +4,32 @@
 
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::Ident;
+use syn::{Ident, Path};
 
-/// Generate WASM implementation for the scroll manager
+/// Generate WASM implementation for the scroll manager (with paths)
+pub fn generate_with_paths(
+    scroll_manager_name: &Ident,
+    view_path: &Path,
+    livequery_path: &Path,
+    timestamp_field: &str,
+) -> TokenStream {
+    generate_impl(scroll_manager_name, quote!(#view_path), quote!(#livequery_path), timestamp_field)
+}
+
+/// Generate WASM implementation for the scroll manager (with idents - for backwards compat)
 pub fn generate(
     scroll_manager_name: &Ident,
     view_name: &Ident,
     livequery_name: &Ident,
+    timestamp_field: &str,
+) -> TokenStream {
+    generate_impl(scroll_manager_name, quote!(#view_name), quote!(#livequery_name), timestamp_field)
+}
+
+fn generate_impl(
+    scroll_manager_name: &Ident,
+    view_type: TokenStream,
+    livequery_type: TokenStream,
     timestamp_field: &str,
 ) -> TokenStream {
     quote! {
@@ -18,7 +37,7 @@ pub fn generate(
         #[::wasm_bindgen::prelude::wasm_bindgen]
         pub struct #scroll_manager_name {
             core: std::cell::RefCell<::virtual_scroll::ScrollManager>,
-            live_query: #livequery_name,
+            live_query: #livequery_type,
             timestamp_field: &'static str,
         }
 
@@ -28,7 +47,7 @@ pub fn generate(
             /// Create a new scroll manager with a live query
             #[wasm_bindgen(constructor)]
             pub fn new(
-                live_query: #livequery_name,
+                live_query: #livequery_type,
                 base_predicate: String,
                 viewport_height: f64,
             ) -> Self {
@@ -90,7 +109,7 @@ pub fn generate(
 
             /// Get items from the LiveQuery
             #[wasm_bindgen(getter)]
-            pub fn items(&self) -> Vec<#view_name> {
+            pub fn items(&self) -> Vec<#view_type> {
                 self.live_query.items()
             }
 

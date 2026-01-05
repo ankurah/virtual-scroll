@@ -4,13 +4,32 @@
 
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::Ident;
+use syn::{Ident, Path};
 
-/// Generate UniFFI implementation for the scroll manager
+/// Generate UniFFI implementation for the scroll manager (with paths)
+pub fn generate_with_paths(
+    scroll_manager_name: &Ident,
+    view_path: &Path,
+    livequery_path: &Path,
+    timestamp_field: &str,
+) -> TokenStream {
+    generate_impl(scroll_manager_name, quote!(#view_path), quote!(#livequery_path), timestamp_field)
+}
+
+/// Generate UniFFI implementation for the scroll manager (with idents - for backwards compat)
 pub fn generate(
     scroll_manager_name: &Ident,
     view_name: &Ident,
     livequery_name: &Ident,
+    timestamp_field: &str,
+) -> TokenStream {
+    generate_impl(scroll_manager_name, quote!(#view_name), quote!(#livequery_name), timestamp_field)
+}
+
+fn generate_impl(
+    scroll_manager_name: &Ident,
+    view_type: TokenStream,
+    livequery_type: TokenStream,
     timestamp_field: &str,
 ) -> TokenStream {
     quote! {
@@ -18,7 +37,7 @@ pub fn generate(
         #[derive(::uniffi::Object)]
         pub struct #scroll_manager_name {
             core: std::sync::Mutex<::virtual_scroll::ScrollManager>,
-            live_query: std::sync::Arc<#livequery_name>,
+            live_query: std::sync::Arc<#livequery_type>,
             timestamp_field: &'static str,
         }
 
@@ -33,7 +52,7 @@ pub fn generate(
             /// * `viewport_height` - Initial viewport height in pixels
             #[uniffi::constructor]
             pub fn new(
-                live_query: std::sync::Arc<#livequery_name>,
+                live_query: std::sync::Arc<#livequery_type>,
                 base_predicate: String,
                 viewport_height: f64,
             ) -> std::sync::Arc<Self> {
@@ -105,7 +124,7 @@ pub fn generate(
             /// Get items from the LiveQuery
             ///
             /// This delegates to the underlying LiveQuery.
-            pub fn items(&self) -> Vec<std::sync::Arc<#view_name>> {
+            pub fn items(&self) -> Vec<std::sync::Arc<#view_type>> {
                 self.live_query.items()
             }
 
