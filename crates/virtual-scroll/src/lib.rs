@@ -25,6 +25,9 @@ use ankurah_signals::{Mut, Peek, Read, Subscribe};
 pub use ankql::ast::{OrderByItem as OrderBy, OrderDirection, PathExpr, Predicate as Filter};
 pub use ankurah_proto::EntityId as Id;
 
+// Re-export for derive macro generated code
+pub use ankurah_signals;
+
 // ============================================================================
 // Core Types
 // ============================================================================
