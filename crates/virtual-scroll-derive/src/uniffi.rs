@@ -58,7 +58,7 @@ fn generate_impl(
         mod __uniffi_scroll_manager {
             use super::*;
             use ::std::sync::Arc;
-            use ::virtual_scroll::ankurah_signals::{Peek, Subscribe};
+            use ::virtual_scroll::ankurah_signals::{Get, Peek, Subscribe};
 
             /// Intersection item for scroll stability
             #[derive(::uniffi::Object)]
@@ -148,14 +148,14 @@ fn generate_impl(
             impl #visible_set_signal_name {
                 #[uniffi::method]
                 pub fn get(&self) -> Arc<#visible_set_name> {
-                    #visible_set_name::from_core(&self.manager.0.visible_set().peek())
+                    #visible_set_name::from_core(&self.manager.0.visible_set().get())
                 }
 
                 #[uniffi::method]
                 pub fn subscribe(&self, callback: Box<dyn #callback_name>) {
                     let cb = Arc::new(callback);
                     let signal = self.manager.0.visible_set();
-                    let initial = #visible_set_name::from_core(&signal.peek());
+                    let initial = #visible_set_name::from_core(&signal.get());
                     let cb_clone = cb.clone();
                     let guard = signal.subscribe(move |visible_set| {
                         cb_clone.on_change(#visible_set_name::from_core(&visible_set));
