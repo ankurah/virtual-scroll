@@ -114,7 +114,7 @@ fn generate_impl(
             /// WASM wrapper for VisibleSet signal - call .get() to read current value
             #[wasm_bindgen]
             pub struct #visible_set_signal_name {
-                manager: Rc<RefCell<::virtual_scroll::ScrollManager<#view_type>>>,
+                inner: ::ankurah_signals::Read<::virtual_scroll::VisibleSet<#view_type>>,
             }
 
             #[wasm_bindgen]
@@ -124,8 +124,8 @@ fn generate_impl(
                 /// In React, calling this from within a signalObserver component
                 /// will automatically subscribe to changes.
                 pub fn get(&self) -> #visible_set_name {
-                    let manager = self.manager.borrow();
-                    let vs = manager.visible_set().peek();
+                    use ::ankurah_signals::Get;
+                    let vs = self.inner.get();
                     #visible_set_name {
                         items: vs.items.clone(),
                         intersection_entity_id: vs.intersection.as_ref().map(|i| i.entity_id.to_string()),
@@ -180,7 +180,7 @@ fn generate_impl(
                 /// Must be called after construction.
                 #[wasm_bindgen]
                 pub async fn start(&self) -> Result<(), JsValue> {
-                    let mut manager = self.inner.borrow_mut();
+                    let manager = self.inner.borrow();
                     manager.start().await;
                     Ok(())
                 }
@@ -191,8 +191,9 @@ fn generate_impl(
                 /// In React with signalObserver, .get() automatically subscribes to changes.
                 #[wasm_bindgen(js_name = visibleSet)]
                 pub fn visible_set(&self) -> #visible_set_signal_name {
+                    let manager = self.inner.borrow();
                     #visible_set_signal_name {
-                        manager: self.inner.clone(),
+                        inner: manager.visible_set(),
                     }
                 }
 
@@ -206,7 +207,7 @@ fn generate_impl(
                     bottom_gap: f64,
                     scrolling_up: bool,
                 ) -> Result<JsValue, JsValue> {
-                    let mut manager = self.inner.borrow_mut();
+                    let manager = self.inner.borrow();
                     let result = manager.on_scroll(top_gap, bottom_gap, scrolling_up).await;
                     match result {
                         Some(dir) => Ok(JsValue::from_str(&format!("{:?}", dir))),
@@ -224,7 +225,7 @@ fn generate_impl(
                 /// Jump to live mode (most recent content)
                 #[wasm_bindgen(js_name = jumpToLive)]
                 pub async fn jump_to_live(&self) -> Result<(), JsValue> {
-                    let mut manager = self.inner.borrow_mut();
+                    let manager = self.inner.borrow();
                     manager.jump_to_live().await;
                     Ok(())
                 }
@@ -238,7 +239,7 @@ fn generate_impl(
                     predicate: String,
                     reset_position: bool,
                 ) -> Result<(), JsValue> {
-                    let mut manager = self.inner.borrow_mut();
+                    let manager = self.inner.borrow();
                     manager.update_filter(&predicate as &str, reset_position).await;
                     Ok(())
                 }
@@ -246,7 +247,7 @@ fn generate_impl(
                 /// Update viewport height (call when container resizes)
                 #[wasm_bindgen(js_name = setViewportHeight)]
                 pub fn set_viewport_height(&self, height: f64) {
-                    let mut manager = self.inner.borrow_mut();
+                    let manager = self.inner.borrow();
                     manager.set_viewport_height(height);
                 }
 

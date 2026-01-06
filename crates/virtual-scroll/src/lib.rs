@@ -119,33 +119,33 @@ impl Default for ScrollConfig {
 /// Virtual scroll manager with Ankurah LiveQuery integration
 ///
 /// Manages pagination state and exposes items via a reactive signal.
+/// All mutable state uses interior mutability via signals for thread-safety
+/// and observability.
 pub struct ScrollManager<V: View + Clone + Send + Sync + 'static> {
     /// The underlying LiveQuery
     livequery: LiveQuery<V>,
     /// Display order (visual presentation order, e.g. timestamp DESC)
     display_order: Vec<OrderByItem>,
     /// Base predicate (without continuation)
-    base_predicate: Predicate,
+    base_predicate: Mut<Predicate>,
     /// Current scroll mode
-    mode: ScrollMode,
+    mode: Mut<ScrollMode>,
     /// Boundary tracking
-    at_earliest: bool,
-    at_latest: bool,
-    /// Loading state
-    is_loading: bool,
+    at_earliest: Mut<bool>,
+    at_latest: Mut<bool>,
     /// Current anchor value (for computing intersection after query update)
-    current_anchor: Option<i64>,
+    current_anchor: Mut<Option<i64>>,
     /// Current continuation direction
-    current_direction: Option<LoadDirection>,
+    current_direction: Mut<Option<LoadDirection>>,
     /// The visible set signal
     visible_set: Mut<VisibleSet<V>>,
-    /// Loading state signal (separate from VisibleSet)
-    loading_signal: Mut<bool>,
+    /// Loading state signal
+    is_loading: Mut<bool>,
     /// Configuration
     config: ScrollConfig,
-    viewport_height: f64,
+    viewport_height: Mut<f64>,
     /// Query limit
-    limit: usize,
+    limit: Mut<usize>,
     /// Subscription guard (kept alive for livequery subscription)
     _subscription: ankurah_signals::SubscriptionGuard,
 }
@@ -234,18 +234,17 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         Ok(Self {
             livequery,
             display_order,
-            base_predicate,
-            mode: ScrollMode::Live,
-            at_earliest: false,
-            at_latest: true,
-            is_loading: false,
-            current_anchor: None,
-            current_direction: None,
+            base_predicate: Mut::new(base_predicate),
+            mode: Mut::new(ScrollMode::Live),
+            at_earliest: Mut::new(false),
+            at_latest: Mut::new(true),
+            is_loading: Mut::new(false),
+            current_anchor: Mut::new(None),
+            current_direction: Mut::new(None),
             visible_set,
-            loading_signal,
             config,
-            viewport_height,
-            limit,
+            viewport_height: Mut::new(viewport_height),
+            limit: Mut::new(limit),
             _subscription: subscription,
         })
     }
@@ -253,7 +252,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
     /// Initialize the scroll manager and populate items
     ///
     /// Must be called after construction before accessing items.
-    pub async fn start(&mut self) {
+    pub async fn start(&self) {
         // Wait for the LiveQuery to initialize
         self.livequery.wait_initialized().await;
 
@@ -270,11 +269,12 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             initial_items.reverse();
         }
 
-        self.at_earliest = initial_items.len() < self.limit;
+        let at_earliest = initial_items.len() < self.limit.peek();
+        self.at_earliest.set(at_earliest);
         self.visible_set.set(VisibleSet {
             items: initial_items,
             intersection: None,
-            has_more_older: !self.at_earliest,
+            has_more_older: !at_earliest,
             has_more_newer: false,    // Live mode
             should_auto_scroll: true, // Live mode
         });
@@ -300,26 +300,26 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
     /// 4. Find the intersection item and measure its new position
     /// 5. Adjust scrollTop by the delta
     pub async fn on_scroll(
-        &mut self,
+        &self,
         top_gap: f64,
         bottom_gap: f64,
         scrolling_up: bool,
     ) -> Option<LoadDirection> {
         // Don't trigger if already loading
-        if self.is_loading {
+        if self.is_loading.peek() {
             return None;
         }
 
-        let min_buffer = self.viewport_height * self.config.min_buffer_ratio;
+        let min_buffer = self.viewport_height.peek() * self.config.min_buffer_ratio;
 
         // Backward pagination (scrolling up, near top, not at earliest)
-        if scrolling_up && top_gap < min_buffer && !self.at_earliest {
+        if scrolling_up && top_gap < min_buffer && !self.at_earliest.peek() {
             self.load_direction(LoadDirection::Backward).await;
             return Some(LoadDirection::Backward);
         }
 
         // Forward pagination (scrolling down, near bottom, not at latest/live)
-        if !scrolling_up && bottom_gap < min_buffer && !self.at_latest {
+        if !scrolling_up && bottom_gap < min_buffer && !self.at_latest.peek() {
             self.load_direction(LoadDirection::Forward).await;
             return Some(LoadDirection::Forward);
         }
@@ -328,10 +328,10 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
     }
 
     /// Update viewport height (call when container resizes)
-    pub fn set_viewport_height(&mut self, height: f64) {
-        if (height - self.viewport_height).abs() > 1.0 {
-            self.viewport_height = height;
-            self.limit = Self::compute_limit(self.viewport_height, &self.config);
+    pub fn set_viewport_height(&self, height: f64) {
+        if (height - self.viewport_height.peek()).abs() > 1.0 {
+            self.viewport_height.set(height);
+            self.limit.set(Self::compute_limit(height, &self.config));
         }
     }
 
@@ -340,7 +340,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
     /// Automatically picks the anchor from current items based on direction:
     /// - Backward: uses the oldest item's timestamp (last in DESC order)
     /// - Forward: uses the newest item's timestamp (first in DESC order)
-    async fn load_direction(&mut self, direction: LoadDirection) {
+    async fn load_direction(&self, direction: LoadDirection) {
         use ankurah::core::value::Value;
 
         // Get current items to find anchor
@@ -374,14 +374,13 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             None => return,
         };
 
-        self.is_loading = true;
-        self.loading_signal.set(true);
-        self.current_anchor = Some(anchor_value);
-        self.current_direction = Some(direction);
-        self.mode = match direction {
+        self.is_loading.set(true);
+        self.current_anchor.set(Some(anchor_value));
+        self.current_direction.set(Some(direction));
+        self.mode.set(match direction {
             LoadDirection::Backward => ScrollMode::Backward,
             LoadDirection::Forward => ScrollMode::Forward,
-        };
+        });
 
         // Build the continuation selection
         let selection = self.build_selection(Some((anchor_value, direction)));
@@ -389,21 +388,19 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         // Update the LiveQuery and wait for results
         if let Err(e) = self.livequery.update_selection_wait(selection).await {
             tracing::error!("Failed to update selection: {:?}", e);
-            self.is_loading = false;
-            self.loading_signal.set(false);
+            self.is_loading.set(false);
             return;
         }
 
         // Compute the new visible set with intersection
         self.compute_visible_set_with_intersection(anchor_value, direction);
 
-        self.is_loading = false;
-        self.loading_signal.set(false);
+        self.is_loading.set(false);
     }
 
     /// Build a Selection for the current state
     fn build_selection(&self, continuation: Option<(i64, LoadDirection)>) -> Selection {
-        let mut predicate = self.base_predicate.clone();
+        let mut predicate = self.base_predicate.peek();
 
         // Determine query order based on continuation direction
         // Live/Backward: use display order (e.g., DESC for chat)
@@ -462,19 +459,19 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         Selection {
             predicate,
             order_by: Some(query_order),
-            limit: Some(self.limit as u64),
+            limit: Some(self.limit.peek() as u64),
         }
     }
 
     /// Compute visible set with intersection after a load
     fn compute_visible_set_with_intersection(
-        &mut self,
+        &self,
         anchor_value: i64,
         direction: LoadDirection,
     ) {
         let mut items: Vec<V> = self.livequery.peek();
         let count = items.len();
-        let at_boundary = count < self.limit;
+        let at_boundary = count < self.limit.peek();
 
         // Check if display order is DESC
         let is_desc = self
@@ -499,17 +496,17 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         // Update boundary state based on result count (at_boundary computed above)
         match direction {
             LoadDirection::Backward => {
-                self.at_earliest = at_boundary;
+                self.at_earliest.set(at_boundary);
                 // We're no longer at the live edge when paginating backward
-                self.at_latest = false;
+                self.at_latest.set(false);
             }
             LoadDirection::Forward => {
-                self.at_latest = at_boundary;
-                if self.at_latest {
+                self.at_latest.set(at_boundary);
+                if at_boundary {
                     // Auto-transition to live when we reach the latest
-                    self.mode = ScrollMode::Live;
-                    self.current_anchor = None;
-                    self.current_direction = None;
+                    self.mode.set(ScrollMode::Live);
+                    self.current_anchor.set(None);
+                    self.current_direction.set(None);
                 }
             }
         }
@@ -517,9 +514,9 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         self.visible_set.set(VisibleSet {
             items,
             intersection,
-            has_more_older: !self.at_earliest,
-            has_more_newer: !self.at_latest,
-            should_auto_scroll: self.mode == ScrollMode::Live,
+            has_more_older: !self.at_earliest.peek(),
+            has_more_newer: !self.at_latest.peek(),
+            should_auto_scroll: self.mode.peek() == ScrollMode::Live,
         });
     }
 
@@ -551,12 +548,12 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
     }
 
     /// Jump to live mode (most recent content)
-    pub async fn jump_to_live(&mut self) {
-        self.mode = ScrollMode::Live;
-        self.current_anchor = None;
-        self.current_direction = None;
-        self.at_earliest = false;
-        self.at_latest = true;
+    pub async fn jump_to_live(&self) {
+        self.mode.set(ScrollMode::Live);
+        self.current_anchor.set(None);
+        self.current_direction.set(None);
+        self.at_earliest.set(false);
+        self.at_latest.set(true);
 
         let selection = self.build_selection(None);
         if let Err(e) = self.livequery.update_selection_wait(selection).await {
@@ -576,12 +573,13 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             items.reverse();
         }
 
-        self.at_earliest = items.len() < self.limit;
+        let at_earliest = items.len() < self.limit.peek();
+        self.at_earliest.set(at_earliest);
 
         self.visible_set.set(VisibleSet {
             items,
             intersection: None,
-            has_more_older: !self.at_earliest,
+            has_more_older: !at_earliest,
             has_more_newer: false,
             should_auto_scroll: true,
         });
@@ -592,24 +590,24 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
     /// If `reset_position` is true, returns to live mode.
     /// If false, attempts to maintain current scroll position.
     pub async fn update_filter(
-        &mut self,
+        &self,
         predicate: impl TryInto<Predicate, Error = impl std::fmt::Debug>,
         reset_position: bool,
     ) {
-        self.base_predicate = predicate.try_into().expect("Failed to parse predicate");
+        self.base_predicate.set(predicate.try_into().expect("Failed to parse predicate"));
 
         if reset_position {
-            self.mode = ScrollMode::Live;
-            self.current_anchor = None;
-            self.current_direction = None;
-            self.at_earliest = false;
-            self.at_latest = true;
+            self.mode.set(ScrollMode::Live);
+            self.current_anchor.set(None);
+            self.current_direction.set(None);
+            self.at_earliest.set(false);
+            self.at_latest.set(true);
         }
 
         let continuation = if reset_position {
             None
         } else {
-            self.current_anchor.zip(self.current_direction)
+            self.current_anchor.peek().zip(self.current_direction.peek())
         };
 
         let selection = self.build_selection(continuation);
@@ -630,18 +628,18 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             items.reverse();
         }
 
-        let at_boundary = items.len() < self.limit;
+        let at_boundary = items.len() < self.limit.peek();
 
         if reset_position {
-            self.at_earliest = at_boundary;
+            self.at_earliest.set(at_boundary);
         }
 
         self.visible_set.set(VisibleSet {
             items,
             intersection: None,
-            has_more_older: !self.at_earliest,
-            has_more_newer: !self.at_latest,
-            should_auto_scroll: self.mode == ScrollMode::Live,
+            has_more_older: !self.at_earliest.peek(),
+            has_more_newer: !self.at_latest.peek(),
+            should_auto_scroll: self.mode.peek() == ScrollMode::Live,
         });
     }
 
@@ -654,12 +652,12 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
 
     /// Get the loading state signal
     pub fn is_loading(&self) -> Read<bool> {
-        self.loading_signal.read()
+        self.is_loading.read()
     }
 
     /// Get current scroll mode
     pub fn mode(&self) -> ScrollMode {
-        self.mode
+        self.mode.peek()
     }
 
     /// Get current configuration
