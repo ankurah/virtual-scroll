@@ -59,6 +59,7 @@ test.describe('Forward Pagination', () => {
       await page.waitForTimeout(300); // Wait for scroll event to process
 
       const stateAtBottom = await getScrollState(page);
+      console.log('stateAtBottom:', JSON.stringify(stateAtBottom, null, 2));
 
       // The scroll event may have already triggered forward pagination
       // Check if mode changed to Forward (or Live if we reached latest)
@@ -66,7 +67,9 @@ test.describe('Forward Pagination', () => {
         // Either scrollToBottom already triggered forward pagination via DOM event,
         // or we need to trigger it manually
         if (stateAtBottom.mode === 'Backward') {
+          console.log('Still in Backward mode, manually triggering onScroll');
           const direction = await triggerOnScroll(page);
+          console.log('triggerOnScroll returned:', direction);
           expect(direction).toBe('Forward');
           await page.waitForTimeout(300);
         }
@@ -172,18 +175,24 @@ test.describe('Forward Pagination', () => {
     if (initialState.hasMoreOlder) {
       await waitForLoading(page);
 
+      const backwardState = await getScrollState(page);
+      expect(backwardState.mode).toBe('Backward');
+
       const backwardItems = await getItems(page);
       const newestInBackward = Math.max(...backwardItems.map((i) => i.timestamp));
 
-      // Now scroll to bottom for forward pagination
-      await scrollToBottom(page);
-      const direction = await triggerOnScroll(page);
-
-      const backwardState = await getScrollState(page);
       if (backwardState.hasMoreNewer) {
-        expect(direction).toBe('Forward');
-        await waitForItemCountChange(page, backwardItems.length);
+        // Now scroll to bottom for forward pagination
+        // Note: scrollToBottom triggers handleScroll which automatically triggers forward pagination
+        await scrollToBottom(page);
+        await page.waitForTimeout(200); // Wait for pagination to complete and state to settle
 
+        // Check state - mode should be Forward or Live
+        const forwardState = await getScrollState(page);
+        expect(['Forward', 'Live']).toContain(forwardState.mode);
+
+        // Get items and verify they have newer timestamps
+        // Note: item count might stay the same (window size), but content should differ
         const forwardItems = await getItems(page);
         const newestInForward = Math.max(...forwardItems.map((i) => i.timestamp));
 

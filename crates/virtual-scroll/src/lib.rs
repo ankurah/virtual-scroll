@@ -484,10 +484,12 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             .unwrap_or(false);
 
         // Reverse items based on direction and display order
-        // - DESC display + Backward: query is DESC, need to reverse for oldest-at-top
-        // - DESC display + Forward: query is ASC, need to reverse for oldest-at-top
-        // - ASC display: no reversal needed
-        if is_desc {
+        // For chat-style display (oldest at top, newest at bottom):
+        // - DESC display + Backward: query is DESC, returns [newer..older], need to reverse
+        // - DESC display + Forward: query is ASC, returns [older..newer], NO reversal needed
+        // - ASC display: no reversal needed (both directions query in display order)
+        let should_reverse = is_desc && direction == LoadDirection::Backward;
+        if should_reverse {
             items.reverse();
         }
 

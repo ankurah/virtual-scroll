@@ -61,6 +61,7 @@ export function VirtualScrollTest() {
   const [currentRoom, setCurrentRoom] = useState<string>('room1')
   const [testStatus, setTestStatus] = useState<string>('')
   const lastScrollTop = useRef(0)
+  const isPaginating = useRef(false)
 
   // Get WASM bindings
   const getWasm = useCallback((): WasmBindings => {
@@ -86,6 +87,12 @@ export function VirtualScrollTest() {
   const handleScroll = useCallback(async () => {
     if (!scrollManager || !containerRef.current) return
 
+    // Skip if we're already in a pagination cycle - prevents re-triggering
+    // when React re-renders after pagination completes
+    if (isPaginating.current) {
+      return
+    }
+
     const container = containerRef.current
     const scrollTop = container.scrollTop
     const scrollHeight = container.scrollHeight
@@ -101,13 +108,16 @@ export function VirtualScrollTest() {
 
     // Only call onScroll for user-initiated scrolls (not programmatic)
     // The scroll manager will decide if pagination is needed
-    const direction = await scrollManager.onScroll(topGap, bottomGap, scrollingUp)
-
-    if (direction) {
-      console.log('Pagination triggered:', direction)
+    isPaginating.current = true
+    try {
+      const direction = await scrollManager.onScroll(topGap, bottomGap, scrollingUp)
+      syncState()
+    } finally {
+      // Reset after a brief delay to allow React re-render to complete
+      setTimeout(() => {
+        isPaginating.current = false
+      }, 50)
     }
-
-    syncState()
   }, [scrollManager, syncState])
 
   // Create test helpers and expose to window
@@ -268,13 +278,16 @@ export function VirtualScrollTest() {
         if (forceScrollingUp !== undefined) {
           scrollingUp = forceScrollingUp
         } else {
-          // Heuristic: if at top (topGap < 50), assume scrolling up intent
-          // if at bottom (bottomGap < 50), assume scrolling down intent
-          if (topGap < 50) {
-            scrollingUp = true
-          } else if (bottomGap < 50) {
+          // Compare which edge we're closer to - this works even with short content
+          // where both topGap and bottomGap can be small
+          if (bottomGap < topGap) {
+            // Closer to bottom = scrolling down intent
             scrollingUp = false
+          } else if (topGap < bottomGap) {
+            // Closer to top = scrolling up intent
+            scrollingUp = true
           } else {
+            // Equal distance - use last scroll direction
             scrollingUp = container.scrollTop < lastScrollTop.current
           }
         }
