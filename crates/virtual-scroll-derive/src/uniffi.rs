@@ -205,7 +205,6 @@ fn generate_impl(
                     ctx: &::ankurah::Context,
                     predicate: String,
                     order_by: String,
-                    viewport_height: f64,
                 ) -> Result<Arc<Self>, ::ankurah::error::RetrievalError> {
                     let order_by = ::virtual_scroll::parse_order_by(&order_by)
                         .map_err(|e| ::ankurah::error::RetrievalError::Other(e.into()))?;
@@ -214,7 +213,6 @@ fn generate_impl(
                         ctx,
                         &predicate as &str,
                         order_by,
-                        viewport_height,
                     )?;
 
                     Ok(Arc::new(Self {
@@ -231,7 +229,7 @@ fn generate_impl(
                 /// Initialize and start populating items
                 #[uniffi::method]
                 pub async fn start(self: Arc<Self>) {
-                    let mut manager = self.inner.lock().await;
+                    let manager = self.inner.lock().await;
                     manager.start().await;
                 }
 
@@ -243,7 +241,7 @@ fn generate_impl(
                     bottom_gap: f64,
                     scrolling_up: bool,
                 ) -> Option<String> {
-                    let mut manager = self.inner.lock().await;
+                    let manager = self.inner.lock().await;
                     let result = manager.on_scroll(top_gap, bottom_gap, scrolling_up).await;
                     result.map(|dir| format!("{:?}", dir))
                 }
@@ -265,21 +263,21 @@ fn generate_impl(
                 /// Jump to live mode
                 #[uniffi::method]
                 pub async fn jump_to_live(self: Arc<Self>) {
-                    let mut manager = self.inner.lock().await;
+                    let manager = self.inner.lock().await;
                     manager.jump_to_live().await;
                 }
 
                 /// Update the base filter predicate
                 #[uniffi::method]
                 pub async fn update_filter(self: Arc<Self>, predicate: String, reset_position: bool) {
-                    let mut manager = self.inner.lock().await;
+                    let manager = self.inner.lock().await;
                     manager.update_filter(&predicate as &str, reset_position).await;
                 }
 
                 /// Update viewport height
                 #[uniffi::method]
                 pub fn set_viewport_height(&self, height: f64) {
-                    let mut manager = self.inner.blocking_lock();
+                    let manager = self.inner.blocking_lock();
                     manager.set_viewport_height(height);
                 }
             }
