@@ -58,7 +58,6 @@ fn generate_impl(
         mod __uniffi_scroll_manager {
             use super::*;
             use ::std::sync::Arc;
-            use ::tokio::sync::Mutex;
             use ::virtual_scroll::ankurah_signals::{Peek, Subscribe};
 
             /// Intersection item for scroll stability
@@ -147,38 +146,21 @@ fn generate_impl(
 
             #[::uniffi::export]
             impl #visible_set_signal_name {
-                /// Get the current value
                 #[uniffi::method]
                 pub fn get(&self) -> Arc<#visible_set_name> {
-                    let manager = self.manager.inner.blocking_lock();
-                    let signal = manager.visible_set();
-                    #visible_set_name::from_core(&signal.peek())
+                    #visible_set_name::from_core(&self.manager.0.visible_set().peek())
                 }
 
-                /// Subscribe to changes. Returns immediately and calls callback on each change.
-                /// The callback is also called immediately with the current value.
                 #[uniffi::method]
                 pub fn subscribe(&self, callback: Box<dyn #callback_name>) {
                     let cb = Arc::new(callback);
-
-                    // Get current value and subscribe while holding lock
-                    let (guard, initial) = {
-                        let manager = self.manager.inner.blocking_lock();
-                        let signal = manager.visible_set();
-                        let initial = #visible_set_name::from_core(&signal.peek());
-
-                        let cb_clone = cb.clone();
-                        let guard = signal.subscribe(move |visible_set| {
-                            let wrapped = #visible_set_name::from_core(&visible_set);
-                            cb_clone.on_change(wrapped);
-                        });
-                        (guard, initial)
-                    };
-
-                    // Store subscription guard to keep it alive
+                    let signal = self.manager.0.visible_set();
+                    let initial = #visible_set_name::from_core(&signal.peek());
+                    let cb_clone = cb.clone();
+                    let guard = signal.subscribe(move |visible_set| {
+                        cb_clone.on_change(#visible_set_name::from_core(&visible_set));
+                    });
                     self._subscriptions.lock().unwrap().push(guard);
-
-                    // Call with initial value (outside lock)
                     cb.on_change(initial);
                 }
             }
@@ -194,9 +176,7 @@ fn generate_impl(
 
             /// UniFFI wrapper for ScrollManager
             #[derive(::uniffi::Object)]
-            pub struct #scroll_manager_name {
-                inner: Mutex<::virtual_scroll::ScrollManager<#view_path>>,
-            }
+            pub struct #scroll_manager_name(::virtual_scroll::ScrollManager<#view_path>);
 
             #[::uniffi::export]
             impl #scroll_manager_name {
@@ -208,78 +188,38 @@ fn generate_impl(
                 ) -> Result<Arc<Self>, ::ankurah::error::RetrievalError> {
                     let order_by = ::virtual_scroll::parse_order_by(&order_by)
                         .map_err(|e| ::ankurah::error::RetrievalError::Other(e.into()))?;
-
-                    let manager = ::virtual_scroll::ScrollManager::<#view_path>::new(
-                        ctx,
-                        &predicate as &str,
-                        order_by,
-                    )?;
-
-                    Ok(Arc::new(Self {
-                        inner: Mutex::new(manager),
-                    }))
+                    Ok(Arc::new(Self(::virtual_scroll::ScrollManager::<#view_path>::new(ctx, &predicate as &str, order_by)?)))
                 }
 
-                /// Get the visible_set signal for subscribing to changes
                 #[uniffi::method]
                 pub fn visible_set(self: Arc<Self>) -> Arc<#visible_set_signal_name> {
                     #visible_set_signal_name::new(self)
                 }
 
-                /// Initialize and start populating items
                 #[uniffi::method]
-                pub async fn start(self: Arc<Self>) {
-                    let manager = self.inner.lock().await;
-                    manager.start().await;
+                pub async fn start(self: Arc<Self>) { self.0.start().await; }
+
+                #[uniffi::method]
+                pub async fn on_scroll(self: Arc<Self>, top_gap: f64, bottom_gap: f64, scrolling_up: bool) -> Option<String> {
+                    self.0.on_scroll(top_gap, bottom_gap, scrolling_up).await.map(|dir| format!("{:?}", dir))
                 }
 
-                /// Process a scroll event
                 #[uniffi::method]
-                pub async fn on_scroll(
-                    self: Arc<Self>,
-                    top_gap: f64,
-                    bottom_gap: f64,
-                    scrolling_up: bool,
-                ) -> Option<String> {
-                    let manager = self.inner.lock().await;
-                    let result = manager.on_scroll(top_gap, bottom_gap, scrolling_up).await;
-                    result.map(|dir| format!("{:?}", dir))
-                }
+                pub fn is_loading(&self) -> bool { self.0.is_loading().peek() }
 
-                /// Get the current loading state
                 #[uniffi::method]
-                pub fn is_loading(&self) -> bool {
-                    let manager = self.inner.blocking_lock();
-                    manager.is_loading().peek()
-                }
+                pub fn mode(&self) -> String { format!("{:?}", self.0.mode()) }
 
-                /// Get the current scroll mode
                 #[uniffi::method]
-                pub fn mode(&self) -> String {
-                    let manager = self.inner.blocking_lock();
-                    format!("{:?}", manager.mode())
-                }
+                pub async fn jump_to_live(self: Arc<Self>) { self.0.jump_to_live().await; }
 
-                /// Jump to live mode
-                #[uniffi::method]
-                pub async fn jump_to_live(self: Arc<Self>) {
-                    let manager = self.inner.lock().await;
-                    manager.jump_to_live().await;
-                }
-
-                /// Update the base filter predicate
                 #[uniffi::method]
                 pub async fn update_filter(self: Arc<Self>, predicate: String, reset_position: bool) {
-                    let manager = self.inner.lock().await;
-                    manager.update_filter(&predicate as &str, reset_position).await;
+                    self.0.update_filter(&predicate as &str, reset_position).await;
                 }
 
-                /// Update viewport height
                 #[uniffi::method]
-                pub fn set_viewport_height(&self, height: f64) {
-                    let manager = self.inner.blocking_lock();
-                    manager.set_viewport_height(height);
-                }
+                pub fn set_viewport_height(&self, height: f64) { self.0.set_viewport_height(height); }
             }
         }
 
