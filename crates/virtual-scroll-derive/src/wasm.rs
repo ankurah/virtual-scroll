@@ -34,6 +34,19 @@ fn generate_impl(
     view_type: TokenStream,
     _timestamp_field: &str,
 ) -> TokenStream {
+    // Extract the model name from scroll manager name (e.g., "Message" from "MessageScrollManager")
+    let model_name = scroll_manager_name.to_string().replace("ScrollManager", "");
+
+    // Generate names following the pattern: {Model}VisibleSet and {Model}VisibleSetSignal
+    let visible_set_signal_name = syn::Ident::new(
+        &format!("{}VisibleSetSignal", model_name),
+        scroll_manager_name.span(),
+    );
+    let visible_set_name = syn::Ident::new(
+        &format!("{}VisibleSet", model_name),
+        scroll_manager_name.span(),
+    );
+
     quote! {
         #[cfg(feature = "wasm")]
         mod __wasm_scroll_manager {
@@ -42,6 +55,87 @@ fn generate_impl(
             use ::ankurah_signals::Peek;
             use ::std::cell::RefCell;
             use ::std::rc::Rc;
+
+            /// WASM wrapper for VisibleSet data
+            #[wasm_bindgen]
+            pub struct #visible_set_name {
+                items: Vec<#view_type>,
+                intersection_entity_id: Option<String>,
+                intersection_index: Option<usize>,
+                has_more_older: bool,
+                has_more_newer: bool,
+                should_auto_scroll: bool,
+            }
+
+            #[wasm_bindgen]
+            impl #visible_set_name {
+                #[wasm_bindgen(getter)]
+                pub fn items(&self) -> Vec<#view_type> {
+                    self.items.clone()
+                }
+
+                #[wasm_bindgen(js_name = hasMoreOlder)]
+                pub fn has_more_older(&self) -> bool {
+                    self.has_more_older
+                }
+
+                #[wasm_bindgen(js_name = hasMoreNewer)]
+                pub fn has_more_newer(&self) -> bool {
+                    self.has_more_newer
+                }
+
+                #[wasm_bindgen(js_name = shouldAutoScroll)]
+                pub fn should_auto_scroll(&self) -> bool {
+                    self.should_auto_scroll
+                }
+
+                /// Get the intersection item info (for scroll stability)
+                pub fn intersection(&self) -> JsValue {
+                    match (&self.intersection_entity_id, &self.intersection_index) {
+                        (Some(entity_id), Some(index)) => {
+                            let obj = ::ankurah::derive_deps::js_sys::Object::new();
+                            let _ = ::ankurah::derive_deps::js_sys::Reflect::set(
+                                &obj,
+                                &JsValue::from_str("entityId"),
+                                &JsValue::from_str(entity_id),
+                            );
+                            let _ = ::ankurah::derive_deps::js_sys::Reflect::set(
+                                &obj,
+                                &JsValue::from_str("index"),
+                                &JsValue::from_f64(*index as f64),
+                            );
+                            obj.into()
+                        }
+                        _ => JsValue::NULL,
+                    }
+                }
+            }
+
+            /// WASM wrapper for VisibleSet signal - call .get() to read current value
+            #[wasm_bindgen]
+            pub struct #visible_set_signal_name {
+                manager: Rc<RefCell<::virtual_scroll::ScrollManager<#view_type>>>,
+            }
+
+            #[wasm_bindgen]
+            impl #visible_set_signal_name {
+                /// Get the current visible set value
+                ///
+                /// In React, calling this from within a signalObserver component
+                /// will automatically subscribe to changes.
+                pub fn get(&self) -> #visible_set_name {
+                    let manager = self.manager.borrow();
+                    let vs = manager.visible_set().peek();
+                    #visible_set_name {
+                        items: vs.items.clone(),
+                        intersection_entity_id: vs.intersection.as_ref().map(|i| i.entity_id.to_string()),
+                        intersection_index: vs.intersection.as_ref().map(|i| i.index),
+                        has_more_older: vs.has_more_older,
+                        has_more_newer: vs.has_more_newer,
+                        should_auto_scroll: vs.should_auto_scroll,
+                    }
+                }
+            }
 
             /// WASM wrapper for ScrollManager
             ///
@@ -59,13 +153,13 @@ fn generate_impl(
                 /// * `ctx` - Ankurah context
                 /// * `predicate` - Base filter predicate (e.g., "room = 'abc'")
                 /// * `order_by` - ORDER BY clause (e.g., "timestamp DESC")
-                /// * `viewport_height` - Initial viewport height in pixels
+                ///
+                /// Call `setViewportHeight()` once the container is rendered to set the actual viewport height.
                 #[wasm_bindgen(constructor)]
                 pub fn new(
                     ctx: &::ankurah::core::context::Context,
                     predicate: String,
                     order_by: String,
-                    viewport_height: f64,
                 ) -> Result<#scroll_manager_name, JsValue> {
                     let order_by = ::virtual_scroll::parse_order_by(&order_by)
                         .map_err(|e| JsValue::from_str(&e))?;
@@ -74,7 +168,6 @@ fn generate_impl(
                         ctx,
                         &predicate as &str,
                         order_by,
-                        viewport_height,
                     ).map_err(|e| JsValue::from_str(&format!("Failed to create ScrollManager: {:?}", e)))?;
 
                     Ok(Self {
@@ -90,6 +183,17 @@ fn generate_impl(
                     let mut manager = self.inner.borrow_mut();
                     manager.start().await;
                     Ok(())
+                }
+
+                /// Get the visible set signal
+                ///
+                /// Returns a signal wrapper - call .get() to read current value.
+                /// In React with signalObserver, .get() automatically subscribes to changes.
+                #[wasm_bindgen(js_name = visibleSet)]
+                pub fn visible_set(&self) -> #visible_set_signal_name {
+                    #visible_set_signal_name {
+                        manager: self.inner.clone(),
+                    }
                 }
 
                 /// Process a scroll event
@@ -110,64 +214,11 @@ fn generate_impl(
                     }
                 }
 
-                /// Get the loading state signal
+                /// Get the loading state
                 #[wasm_bindgen(js_name = isLoading)]
                 pub fn is_loading(&self) -> bool {
                     let manager = self.inner.borrow();
                     manager.is_loading().peek()
-                }
-
-                /// Get current items (convenience getter)
-                #[wasm_bindgen(getter)]
-                pub fn items(&self) -> Vec<#view_type> {
-                    let manager = self.inner.borrow();
-                    manager.visible_set().peek().items.clone()
-                }
-
-                /// Check if there's more older content to load
-                #[wasm_bindgen(js_name = hasMoreOlder)]
-                pub fn has_more_older(&self) -> bool {
-                    let manager = self.inner.borrow();
-                    manager.visible_set().peek().has_more_older
-                }
-
-                /// Check if there's more newer content to load
-                #[wasm_bindgen(js_name = hasMoreNewer)]
-                pub fn has_more_newer(&self) -> bool {
-                    let manager = self.inner.borrow();
-                    manager.visible_set().peek().has_more_newer
-                }
-
-                /// Check if auto-scroll should be enabled
-                #[wasm_bindgen(js_name = shouldAutoScroll)]
-                pub fn should_auto_scroll(&self) -> bool {
-                    let manager = self.inner.borrow();
-                    manager.visible_set().peek().should_auto_scroll
-                }
-
-                /// Get the intersection item info (for scroll stability)
-                ///
-                /// Returns null if no intersection, otherwise {entityId, index}
-                #[wasm_bindgen(getter)]
-                pub fn intersection(&self) -> JsValue {
-                    let manager = self.inner.borrow();
-                    match &manager.visible_set().peek().intersection {
-                        Some(intersection) => {
-                            let obj = ::ankurah::derive_deps::js_sys::Object::new();
-                            let _ = ::ankurah::derive_deps::js_sys::Reflect::set(
-                                &obj,
-                                &JsValue::from_str("entityId"),
-                                &JsValue::from_str(&intersection.entity_id.to_string()),
-                            );
-                            let _ = ::ankurah::derive_deps::js_sys::Reflect::set(
-                                &obj,
-                                &JsValue::from_str("index"),
-                                &JsValue::from_f64(intersection.index as f64),
-                            );
-                            obj.into()
-                        }
-                        None => JsValue::NULL,
-                    }
                 }
 
                 /// Jump to live mode (most recent content)

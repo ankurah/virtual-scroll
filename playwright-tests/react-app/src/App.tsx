@@ -49,7 +49,7 @@ export interface TestHelpers {
   getItemById: (id: string) => { top: number; height: number } | null
 
   // Scroll event triggering
-  triggerOnScroll: () => Promise<string | null> // returns load direction or null
+  triggerOnScroll: (forceScrollingUp?: boolean) => Promise<string | null> // returns load direction or null
 }
 
 function App() {

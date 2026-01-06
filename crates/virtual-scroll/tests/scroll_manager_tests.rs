@@ -25,8 +25,8 @@ async fn test_scroll_manager_creation() -> Result<(), anyhow::Error> {
         &ctx,
         "room = 'room1'",
         timestamp_desc(),
-        600.0, // viewport height
     )?;
+    manager.set_viewport_height(600.0);
     manager.start().await;
 
     // Check initial state
@@ -66,9 +66,9 @@ async fn test_backward_pagination() -> Result<(), anyhow::Error> {
         &ctx,
         "room = 'room1'",
         timestamp_desc(),
-        600.0,
         config,
     )?;
+    manager.set_viewport_height(600.0);
     manager.start().await;
 
     // Initial load should have ~12 items (limited by config)
@@ -113,9 +113,9 @@ async fn test_jump_to_live() -> Result<(), anyhow::Error> {
         &ctx,
         "room = 'room1'",
         timestamp_desc(),
-        600.0,
         config,
     )?;
+    manager.set_viewport_height(600.0);
     manager.start().await;
 
     // Simulate backward pagination via on_scroll
@@ -159,8 +159,8 @@ async fn test_filter_update() -> Result<(), anyhow::Error> {
         &ctx,
         "room = 'room1'",
         timestamp_desc(),
-        600.0,
     )?;
+    manager.set_viewport_height(600.0);
     manager.start().await;
 
     let set1 = manager.visible_set().peek();
@@ -196,9 +196,9 @@ async fn test_visible_set_flags() -> Result<(), anyhow::Error> {
         &ctx,
         "room = 'room1'",
         timestamp_desc(),
-        600.0,
         config,
     )?;
+    manager.set_viewport_height(600.0);
     manager.start().await;
 
     let visible_set = manager.visible_set().peek();
@@ -227,15 +227,16 @@ async fn test_intersection_item_found() -> Result<(), anyhow::Error> {
         &ctx,
         "room = 'room1'",
         timestamp_desc(),
-        600.0,
         config,
     )?;
+    manager.set_viewport_height(600.0);
     manager.start().await;
 
     // Trigger backward pagination via on_scroll
     // This will use the oldest item's timestamp as anchor
+    // After reversal for chat display: first item is oldest, last item is newest
     let initial_set = manager.visible_set().peek();
-    let oldest_timestamp = match initial_set.items.last() {
+    let oldest_timestamp = match initial_set.items.first() {
         Some(item) => match item.entity().value("timestamp") {
             Some(ankurah::core::value::Value::I64(ts)) => ts,
             _ => panic!("Should have timestamp"),
@@ -279,8 +280,8 @@ async fn test_display_order_consistency() -> Result<(), anyhow::Error> {
         &ctx,
         "room = 'room1'",
         timestamp_desc(),
-        600.0,
     )?;
+    manager.set_viewport_height(600.0);
     manager.start().await;
 
     let set = manager.visible_set().peek();
@@ -302,8 +303,8 @@ async fn test_on_scroll_guards() -> Result<(), anyhow::Error> {
         &ctx,
         "room = 'room1'",
         timestamp_desc(),
-        600.0,
     )?;
+    manager.set_viewport_height(600.0);
     manager.start().await;
 
     // With only 5 messages, we're at earliest boundary

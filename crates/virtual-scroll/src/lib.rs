@@ -150,27 +150,28 @@ pub struct ScrollManager<V: View + Clone + Send + Sync + 'static> {
     _subscription: ankurah_signals::SubscriptionGuard,
 }
 
+/// Default viewport height used when none is provided
+const DEFAULT_VIEWPORT_HEIGHT: f64 = 600.0;
+
 impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
     /// Create a new scroll manager (not yet initialized)
     ///
     /// Call `start()` to initialize the query and populate items.
+    /// Call `set_viewport_height()` once the actual viewport dimensions are known.
     ///
     /// # Arguments
     /// * `ctx` - Ankurah context
     /// * `predicate` - Base filter predicate (e.g., `"room = 'abc' AND deleted = false"`)
     /// * `display_order` - Visual presentation order (e.g., `[timestamp DESC]` for chat)
-    /// * `viewport_height` - Initial viewport height in pixels
     pub fn new(
         ctx: &Context,
         predicate: impl TryInto<Predicate, Error = impl std::fmt::Debug>,
         display_order: impl Into<Vec<OrderByItem>>,
-        viewport_height: f64,
     ) -> Result<Self, ankurah::error::RetrievalError> {
         Self::with_config(
             ctx,
             predicate,
             display_order,
-            viewport_height,
             ScrollConfig::default(),
         )
     }
@@ -178,15 +179,16 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
     /// Create a scroll manager with custom configuration (not yet initialized)
     ///
     /// Call `start()` to initialize the query and populate items.
+    /// Call `set_viewport_height()` once the actual viewport dimensions are known.
     pub fn with_config(
         ctx: &Context,
         predicate: impl TryInto<Predicate, Error = impl std::fmt::Debug>,
         display_order: impl Into<Vec<OrderByItem>>,
-        viewport_height: f64,
         config: ScrollConfig,
     ) -> Result<Self, ankurah::error::RetrievalError> {
         let base_predicate = predicate.try_into().expect("Failed to parse predicate");
         let display_order = display_order.into();
+        let viewport_height = DEFAULT_VIEWPORT_HEIGHT;
         let limit = Self::compute_limit(viewport_height, &config);
 
         // Build initial selection (live mode = display order)
@@ -354,12 +356,12 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         };
 
         // Pick anchor based on direction
-        // For DESC order: first item is newest, last item is oldest
-        // Backward = want older items, anchor = oldest current = last item
-        // Forward = want newer items, anchor = newest current = first item
+        // After reversal for chat display: first item is OLDEST, last item is NEWEST
+        // Backward = want older items, anchor = oldest current = first item
+        // Forward = want newer items, anchor = newest current = last item
         let anchor_item = match direction {
-            LoadDirection::Backward => current_set.items.last(),
-            LoadDirection::Forward => current_set.items.first(),
+            LoadDirection::Backward => current_set.items.first(),
+            LoadDirection::Forward => current_set.items.last(),
         };
 
         let anchor_value = match anchor_item {
@@ -472,6 +474,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
     ) {
         let mut items: Vec<V> = self.livequery.peek();
         let count = items.len();
+        let at_boundary = count < self.limit;
 
         // Check if display order is DESC
         let is_desc = self
@@ -491,8 +494,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         // Find the intersection item by anchor value
         let intersection = self.find_intersection_item(&items, anchor_value);
 
-        // Update boundary state based on result count
-        let at_boundary = count < self.limit;
+        // Update boundary state based on result count (at_boundary computed above)
         match direction {
             LoadDirection::Backward => {
                 self.at_earliest = at_boundary;

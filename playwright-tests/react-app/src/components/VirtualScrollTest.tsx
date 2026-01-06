@@ -13,15 +13,25 @@ interface MessageView {
   room: string
 }
 
-interface MessageScrollManager {
-  start: () => Promise<void>
-  onScroll: (topGap: number, bottomGap: number, scrollingUp: boolean) => Promise<string | null>
-  items: MessageView[]
-  intersection: { entityId: string; index: number } | null
-  mode: string
+// VisibleSet data returned by visibleSet().get()
+interface MessageVisibleSet {
+  items: MessageView[]  // property getter, not a method
+  intersection: () => { entityId: string; index: number } | null  // returns plain object
   hasMoreOlder: () => boolean
   hasMoreNewer: () => boolean
   shouldAutoScroll: () => boolean
+}
+
+// Signal wrapper with .get() method
+interface MessageVisibleSetSignal {
+  get: () => MessageVisibleSet
+}
+
+interface MessageScrollManager {
+  start: () => Promise<void>
+  onScroll: (topGap: number, bottomGap: number, scrollingUp: boolean) => Promise<string | null>
+  visibleSet: () => MessageVisibleSetSignal
+  mode: string
   isLoading: () => boolean
   jumpToLive: () => Promise<void>
   updateFilter: (predicate: string, resetPosition: boolean) => Promise<void>
@@ -32,7 +42,7 @@ interface WasmBindings {
   ctx: () => unknown
   seed_test_data: (room: string, count: number, startTimestamp: bigint, variedHeights: boolean) => Promise<void>
   clear_all_messages: () => Promise<void>
-  MessageScrollManager: new (ctx: unknown, predicate: string, orderBy: string, viewportHeight: number) => MessageScrollManager
+  MessageScrollManager: new (ctx: unknown, predicate: string, orderBy: string) => MessageScrollManager
 }
 
 // Fixed container height for deterministic test results
@@ -45,6 +55,9 @@ export function VirtualScrollTest() {
   const [intersection, setIntersection] = useState<{ entityId: string; index: number } | null>(null)
   const [mode, setMode] = useState<string>('Live')
   const [loading, setLoading] = useState(false)
+  const [hasMoreOlder, setHasMoreOlder] = useState(false)
+  const [hasMoreNewer, setHasMoreNewer] = useState(false)
+  const [shouldAutoScroll, setShouldAutoScroll] = useState(true)
   const [currentRoom, setCurrentRoom] = useState<string>('room1')
   const [testStatus, setTestStatus] = useState<string>('')
   const lastScrollTop = useRef(0)
@@ -55,13 +68,18 @@ export function VirtualScrollTest() {
     return window.wasm as unknown as WasmBindings
   }, [])
 
-  // Update state from scroll manager
+  // Update state from scroll manager's visible set signal
   const syncState = useCallback(() => {
     if (!scrollManager) return
-    setItems([...scrollManager.items])
-    setIntersection(scrollManager.intersection)
+    const vs = scrollManager.visibleSet().get()
+    setItems([...vs.items])
+    const inter = vs.intersection()
+    setIntersection(inter ? { entityId: inter.entityId, index: inter.index } : null)
     setMode(scrollManager.mode)
     setLoading(scrollManager.isLoading())
+    setHasMoreOlder(vs.hasMoreOlder())
+    setHasMoreNewer(vs.hasMoreNewer())
+    setShouldAutoScroll(vs.shouldAutoScroll())
   }, [scrollManager])
 
   // Scroll handler
@@ -115,16 +133,23 @@ export function VirtualScrollTest() {
         const wasm = getWasm()
         const ctx = wasm.ctx()
         const predicate = `room = '${room}' AND deleted = false`
-        const manager = new wasm.MessageScrollManager(ctx, predicate, 'timestamp DESC', viewportHeight)
+        const manager = new wasm.MessageScrollManager(ctx, predicate, 'timestamp DESC')
+        // Set viewport height before starting
+        manager.setViewportHeight(viewportHeight)
         await manager.start()
         setScrollManager(manager)
         setCurrentRoom(room)
 
         // Initial sync after a tick
         setTimeout(() => {
-          setItems([...manager.items])
-          setIntersection(manager.intersection)
+          const vs = manager.visibleSet().get()
+          setItems([...vs.items])
+          const inter = vs.intersection()
+          setIntersection(inter ? { entityId: inter.entityId, index: inter.index } : null)
           setMode(manager.mode)
+          setHasMoreOlder(vs.hasMoreOlder())
+          setHasMoreNewer(vs.hasMoreNewer())
+          setShouldAutoScroll(vs.shouldAutoScroll())
         }, 0)
       },
 
@@ -133,6 +158,9 @@ export function VirtualScrollTest() {
         setItems([])
         setIntersection(null)
         setMode('Live')
+        setHasMoreOlder(false)
+        setHasMoreNewer(false)
+        setShouldAutoScroll(true)
       },
 
       jumpToLive: async () => {
@@ -172,7 +200,7 @@ export function VirtualScrollTest() {
         containerRef.current.scrollTop = containerRef.current.scrollHeight
       },
 
-      // State inspection
+      // State inspection - use local state that's synced from visibleSet
       getItems: () => {
         return items.map(item => ({
           id: item.id.toString(),
@@ -183,10 +211,10 @@ export function VirtualScrollTest() {
 
       getIntersection: () => intersection,
       getMode: () => mode,
-      hasMoreOlder: () => scrollManager?.hasMoreOlder() ?? false,
-      hasMoreNewer: () => scrollManager?.hasMoreNewer() ?? false,
-      shouldAutoScroll: () => scrollManager?.shouldAutoScroll() ?? false,
-      isLoading: () => scrollManager?.isLoading() ?? false,
+      hasMoreOlder: () => hasMoreOlder,
+      hasMoreNewer: () => hasMoreNewer,
+      shouldAutoScroll: () => shouldAutoScroll,
+      isLoading: () => loading,
       getItemCount: () => items.length,
 
       // Metrics for scroll stability
@@ -226,14 +254,32 @@ export function VirtualScrollTest() {
       },
 
       // Trigger scroll event manually (for precise testing)
-      triggerOnScroll: async () => {
+      // Optionally pass scrollingUp to force direction when scrollTop comparison is unreliable
+      triggerOnScroll: async (forceScrollingUp?: boolean) => {
         if (!scrollManager || !containerRef.current) return null
 
         const container = containerRef.current
         const topGap = container.scrollTop
         const bottomGap = container.scrollHeight - container.scrollTop - container.clientHeight
-        const scrollingUp = container.scrollTop < lastScrollTop.current
 
+        // Use forced direction if provided, otherwise determine from scroll position
+        // Note: scrollingUp comparison can be unreliable when scrollTop is set programmatically
+        let scrollingUp: boolean
+        if (forceScrollingUp !== undefined) {
+          scrollingUp = forceScrollingUp
+        } else {
+          // Heuristic: if at top (topGap < 50), assume scrolling up intent
+          // if at bottom (bottomGap < 50), assume scrolling down intent
+          if (topGap < 50) {
+            scrollingUp = true
+          } else if (bottomGap < 50) {
+            scrollingUp = false
+          } else {
+            scrollingUp = container.scrollTop < lastScrollTop.current
+          }
+        }
+
+        lastScrollTop.current = container.scrollTop
         const direction = await scrollManager.onScroll(topGap, bottomGap, scrollingUp)
         syncState()
         return direction
@@ -245,14 +291,14 @@ export function VirtualScrollTest() {
     return () => {
       window.testHelpers = null
     }
-  }, [getWasm, scrollManager, items, intersection, mode, syncState])
+  }, [getWasm, scrollManager, items, intersection, mode, loading, hasMoreOlder, hasMoreNewer, shouldAutoScroll, syncState])
 
   // Auto-scroll to bottom in live mode
   useEffect(() => {
-    if (scrollManager?.shouldAutoScroll() && containerRef.current) {
+    if (shouldAutoScroll && containerRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight
     }
-  }, [items, scrollManager])
+  }, [items, shouldAutoScroll])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 20 }}>
@@ -271,9 +317,9 @@ export function VirtualScrollTest() {
         <div>Room: {currentRoom} | Mode: {mode} | Items: {items.length}</div>
         <div>
           Loading: {loading ? 'yes' : 'no'} |
-          More older: {scrollManager?.hasMoreOlder() ? 'yes' : 'no'} |
-          More newer: {scrollManager?.hasMoreNewer() ? 'yes' : 'no'} |
-          Auto-scroll: {scrollManager?.shouldAutoScroll() ? 'yes' : 'no'}
+          More older: {hasMoreOlder ? 'yes' : 'no'} |
+          More newer: {hasMoreNewer ? 'yes' : 'no'} |
+          Auto-scroll: {shouldAutoScroll ? 'yes' : 'no'}
         </div>
         {intersection && (
           <div>Intersection: index={intersection.index}, id={intersection.entityId.slice(-6)}</div>
