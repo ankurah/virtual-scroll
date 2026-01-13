@@ -1,2 +1,3 @@
+0.7.2  Fix README examples to match actual API (constructor args, EntityId-based onScroll, async start)
 0.7.1  Add readme to crates.io listing
 0.7.0  Initial release with ankurah 0.7.x compatibility; platform-agnostic virtual scroll state machine with bidirectional pagination, intersection anchoring, and reactive LiveQuery integration
