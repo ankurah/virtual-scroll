@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "../../README.md"
 description = "Platform-agnostic virtual scroll state machine with pagination for Ankurah"
 
 [features]
@@ -21,7 +22,7 @@ ankurah-signals = "^0.7.13"
 tracing = "0.1"
 
 # Re-export derive macro for convenience
-ankurah-virtual-scroll-derive = { path = "../virtual-scroll-derive", version = "=0.7.0" }
+ankurah-virtual-scroll-derive = { path = "../virtual-scroll-derive", version = "=0.7.1" }
 
 [dev-dependencies]
 ankurah-storage-sled = "^0.7.13"

@@ -223,7 +223,7 @@ dependencies = [
 
 [[package]]
 name = "ankurah-virtual-scroll"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ankql",
  "ankurah",
@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "ankurah-virtual-scroll-derive"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1685,7 +1685,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "virtual-scroll-playwright-bindings"
-version = "0.1.0"
+version = "0.7.1"
 dependencies = [
  "ankql",
  "ankurah",
