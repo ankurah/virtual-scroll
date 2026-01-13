@@ -22,7 +22,7 @@ ankurah-signals = "^0.7.13"
 tracing = "0.1"
 
 # Re-export derive macro for convenience
-ankurah-virtual-scroll-derive = { path = "../virtual-scroll-derive", version = "=0.7.1" }
+ankurah-virtual-scroll-derive = { path = "../virtual-scroll-derive", version = "=0.7.2" }
 
 [dev-dependencies]
 ankurah-storage-sled = "^0.7.13"

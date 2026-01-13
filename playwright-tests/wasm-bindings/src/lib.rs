@@ -31,13 +31,15 @@ pub struct Message {
     pub deleted: bool,
 }
 
-// Generate MessageScrollManager with timestamp DESC ordering
+// liaison id=generate-macro
+// Generate MessageScrollManager with WASM bindings
 ankurah_virtual_scroll::generate_scroll_manager!(
     Message,
     MessageView,
     MessageLiveQuery,
     timestamp_field = "timestamp"
 );
+// liaison end
 
 lazy_static! {
     static ref NODE: OnceCell<Node<IndexedDBStorageEngine, PermissiveAgent>> = OnceCell::new();
