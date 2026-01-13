@@ -85,8 +85,8 @@ fn generate_impl(
             pub struct #visible_set_name {
                 items: Vec<::std::sync::Arc<#view_path>>,
                 intersection: Option<::std::sync::Arc<#intersection_name>>,
-                has_more_older: bool,
-                has_more_newer: bool,
+                has_more_preceding: bool,
+                has_more_following: bool,
                 should_auto_scroll: bool,
             }
 
@@ -103,13 +103,13 @@ fn generate_impl(
                 }
 
                 #[uniffi::method]
-                pub fn has_more_older(&self) -> bool {
-                    self.has_more_older
+                pub fn has_more_preceding(&self) -> bool {
+                    self.has_more_preceding
                 }
 
                 #[uniffi::method]
-                pub fn has_more_newer(&self) -> bool {
-                    self.has_more_newer
+                pub fn has_more_following(&self) -> bool {
+                    self.has_more_following
                 }
 
                 #[uniffi::method]
@@ -130,8 +130,8 @@ fn generate_impl(
                     ::std::sync::Arc::new(Self {
                         items: core.items.iter().map(|v| ::std::sync::Arc::new(v.clone())).collect(),
                         intersection,
-                        has_more_older: core.has_more_older,
-                        has_more_newer: core.has_more_newer,
+                        has_more_preceding: core.has_more_preceding,
+                        has_more_following: core.has_more_following,
                         should_auto_scroll: core.should_auto_scroll,
                     })
                 }
@@ -180,15 +180,34 @@ fn generate_impl(
 
             #[::uniffi::export]
             impl #scroll_manager_name {
+                /// Create a new scroll manager
+                ///
+                /// # Arguments
+                /// * `ctx` - Ankurah context
+                /// * `predicate` - Base filter predicate (e.g., "room = 'abc'")
+                /// * `order_by` - ORDER BY clause (e.g., "timestamp DESC")
+                /// * `minimum_row_height` - Guaranteed minimum item height in pixels
+                /// * `buffer_factor` - Buffer as multiple of viewport (2.0 = 2x viewport buffer)
+                /// * `viewport_height` - Viewport height in pixels
                 #[uniffi::constructor]
                 pub fn new(
                     ctx: &::ankurah::Context,
                     predicate: String,
                     order_by: String,
+                    minimum_row_height: u32,
+                    buffer_factor: f64,
+                    viewport_height: u32,
                 ) -> Result<Arc<Self>, ::ankurah::error::RetrievalError> {
                     let order_by = ::ankurah_virtual_scroll::parse_order_by(&order_by)
                         .map_err(|e| ::ankurah::error::RetrievalError::Other(e.into()))?;
-                    Ok(Arc::new(Self(::ankurah_virtual_scroll::ScrollManager::<#view_path>::new(ctx, &predicate as &str, order_by)?)))
+                    Ok(Arc::new(Self(::ankurah_virtual_scroll::ScrollManager::<#view_path>::new(
+                        ctx,
+                        &predicate as &str,
+                        order_by,
+                        minimum_row_height,
+                        buffer_factor,
+                        viewport_height,
+                    )?)))
                 }
 
                 #[uniffi::method]
@@ -196,30 +215,38 @@ fn generate_impl(
                     #visible_set_signal_name::new(self)
                 }
 
+                /// Initialize the scroll manager and populate initial items
                 #[uniffi::method]
-                pub async fn start(self: Arc<Self>) { self.0.start().await; }
-
-                #[uniffi::method]
-                pub async fn on_scroll(self: Arc<Self>, top_gap: f64, bottom_gap: f64, scrolling_up: bool) -> Option<String> {
-                    self.0.on_scroll(top_gap, bottom_gap, scrolling_up).await.map(|dir| format!("{:?}", dir))
+                pub async fn start(self: Arc<Self>) {
+                    self.0.start().await;
                 }
 
+                /// Process a scroll event
+                ///
+                /// # Arguments
+                /// * `first_visible` - EntityId string of the first (oldest) visible item
+                /// * `last_visible` - EntityId string of the last (newest) visible item
+                /// * `scrolling_backward` - True if user is scrolling toward older items
                 #[uniffi::method]
-                pub fn is_loading(&self) -> bool { self.0.is_loading().peek() }
-
-                #[uniffi::method]
-                pub fn mode(&self) -> String { format!("{:?}", self.0.mode()) }
-
-                #[uniffi::method]
-                pub async fn jump_to_live(self: Arc<Self>) { self.0.jump_to_live().await; }
-
-                #[uniffi::method]
-                pub async fn update_filter(self: Arc<Self>, predicate: String, reset_position: bool) {
-                    self.0.update_filter(&predicate as &str, reset_position).await;
+                pub fn on_scroll(self: Arc<Self>, first_visible: String, last_visible: String, scrolling_backward: bool) {
+                    let first_id: ::ankurah_virtual_scroll::Id = first_visible.parse()
+                        .expect("Invalid first_visible EntityId");
+                    let last_id: ::ankurah_virtual_scroll::Id = last_visible.parse()
+                        .expect("Invalid last_visible EntityId");
+                    self.0.on_scroll(first_id, last_id, scrolling_backward);
                 }
 
+                /// Get the current scroll mode
                 #[uniffi::method]
-                pub fn set_viewport_height(&self, height: f64) { self.0.set_viewport_height(height); }
+                pub fn mode(&self) -> String {
+                    format!("{:?}", self.0.mode())
+                }
+
+                /// Get the current selection (predicate + order by) as a string
+                #[uniffi::method]
+                pub fn current_selection(&self) -> String {
+                    self.0.current_selection()
+                }
             }
         }
 
