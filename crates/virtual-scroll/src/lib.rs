@@ -126,6 +126,9 @@ pub struct ScrollManager<V: View + Clone + Send + Sync + 'static> {
     mode: Mut<ScrollMode>,
     /// Pending slide operation (set before query, consumed in callback)
     pending: Mut<Option<PendingSlide>>,
+    /// Last continuation items per direction for debouncing
+    last_backward_continuation: Mut<Option<EntityId>>,
+    last_forward_continuation: Mut<Option<EntityId>>,
     minimum_row_height: u32,
     buffer_factor: f64,
     viewport_height: u32,
@@ -173,6 +176,8 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let visible_set: Mut<VisibleSet<V>> = Mut::new(VisibleSet::default());
         let pending: Mut<Option<PendingSlide>> = Mut::new(None);
         let mode: Mut<ScrollMode> = Mut::new(ScrollMode::Live);
+        let last_backward_continuation: Mut<Option<EntityId>> = Mut::new(None);
+        let last_forward_continuation: Mut<Option<EntityId>> = Mut::new(None);
 
         // Determine if we need to reverse results for display
         let is_desc = display_order
@@ -185,16 +190,28 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let pending_clone = pending.clone();
         let mode_clone = mode.clone();
         let subscription = livequery.subscribe(move |changeset: ChangeSet<V>| {
+            tracing::info!("[subscription] CALLBACK FIRED");
+
             let current = visible_set_clone.peek();
             // Skip if not yet initialized (start() will handle initial set)
             if current.items.is_empty() && !changeset.resultset.peek().is_empty() {
+                tracing::debug!("[subscription] skipping - not yet initialized");
                 return;
             }
             let mut items: Vec<V> = changeset.resultset.peek();
+            tracing::info!("[subscription] processing {} items, current has {}", items.len(), current.items.len());
 
-            // Consume pending slide state
-            let slide = pending_clone.peek();
-            pending_clone.set(None);
+            // Consume pending slide state - but only if we received enough items
+            // This prevents intermediate callbacks (from incremental delta application) from
+            // incorrectly consuming the slide before the full result is ready
+            let pending_slide = pending_clone.peek();
+            let should_process_slide = pending_slide.as_ref().map(|s| items.len() >= s.limit).unwrap_or(false);
+            let slide = if should_process_slide {
+                pending_clone.set(None);
+                pending_slide
+            } else {
+                None
+            };
 
             // Normally, DESC order needs reversal to get oldest-first display order
             // But if we used reversed order (ASC for forward), items are already oldest-first
@@ -262,6 +279,11 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
                 (current.has_more_preceding, current.has_more_following, None, None)
             };
 
+            tracing::info!(
+                "[subscription] visible_set: items={}, has_more_preceding={}, has_more_following={}",
+                items.len(), has_more_preceding, has_more_following
+            );
+
             visible_set_clone.set(VisibleSet {
                 items,
                 intersection,
@@ -279,6 +301,8 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             visible_set,
             mode,
             pending,
+            last_backward_continuation,
+            last_forward_continuation,
             minimum_row_height,
             buffer_factor,
             viewport_height,
@@ -304,6 +328,11 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
 
         let live_window = self.live_window_size();
         let has_more_preceding = items.len() >= live_window;
+
+        tracing::info!(
+            "[start] initial visible_set: items={}, has_more_preceding={}",
+            items.len(), has_more_preceding
+        );
 
         self.visible_set.set(VisibleSet {
             items,
@@ -350,8 +379,14 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
     /// * `last_visible` - EntityId of the last (newest) visible item
     /// * `scrolling_backward` - True if user is scrolling toward older items
     pub fn on_scroll(&self, first_visible: EntityId, last_visible: EntityId, scrolling_backward: bool) {
+
         let current = self.visible_set.peek();
         let screen = self.screen_items();
+
+        tracing::debug!(
+            "[on_scroll] window: items={}, has_more_preceding={}, has_more_following={}",
+            current.items.len(), current.has_more_preceding, current.has_more_following
+        );
 
         // Find indices of visible items in current window
         let first_idx = current.items.iter().position(|item| item.entity().id() == first_visible);
@@ -359,22 +394,34 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
 
         let (first_visible_index, last_visible_index) = match (first_idx, last_idx) {
             (Some(f), Some(l)) => (f, l),
-            _ => return, // Visible items not found in window - shouldn't happen
+            _ => {
+                tracing::warn!(
+                    "[on_scroll] EARLY RETURN: EntityId not found! first_idx={:?}, last_idx={:?}",
+                    first_idx, last_idx
+                );
+                return;
+            }
         };
 
         let items_above = first_visible_index;
         let items_below = current.items.len().saturating_sub(last_visible_index + 1);
 
         tracing::debug!(
-            "on_scroll: first={}, last={}, items_above={}, items_below={}, screen={}, scrolling_backward={}, has_more_preceding={}",
-            first_visible_index, last_visible_index, items_above, items_below, screen, scrolling_backward, current.has_more_preceding
+            "[on_scroll] indices: first={}, last={}, above={}, below={}",
+            first_visible_index, last_visible_index, items_above, items_below
         );
 
+        // Check thresholds
+        let backward_threshold = scrolling_backward && items_above <= screen && current.has_more_preceding;
+        let forward_threshold = !scrolling_backward && items_below <= screen && current.has_more_following;
+
         // Trigger when buffer is at or below S items (one screenful remaining)
-        if scrolling_backward && items_above <= screen && current.has_more_preceding {
+        if backward_threshold {
+            tracing::info!("[on_scroll] TRIGGERING BACKWARD PAGINATION");
             self.mode.set(ScrollMode::Backward);
             self.slide_window(&current, first_visible_index, last_visible_index, LoadDirection::Backward);
-        } else if !scrolling_backward && items_below <= screen && current.has_more_following {
+        } else if forward_threshold {
+            tracing::info!("[on_scroll] TRIGGERING FORWARD PAGINATION");
             self.mode.set(ScrollMode::Forward);
             self.slide_window(&current, first_visible_index, last_visible_index, LoadDirection::Forward);
         }
@@ -395,38 +442,60 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let max_index = current.items.len().saturating_sub(1);
 
         // Direction-specific: cursor position, intersection anchor, and comparison operator
+        // Array is ordered oldest-first: items[0] = oldest, items[max] = newest
         let (cursor_index, intersection_index, operator, reversed_order) = match direction {
             LoadDirection::Backward => (
+                // Sliding window backward: cursor NEWER than visible, query includes current + older
+                // Query: timestamp <= cursor_timestamp ORDER BY DESC LIMIT N
                 (newest_visible_index + buffer).min(max_index),
-                newest_visible_index,
+                newest_visible_index, // intersection anchor for merging results
                 ComparisonOperator::LessThanOrEqual,
                 false,
             ),
             LoadDirection::Forward => (
-                // If at oldest edge, start from beginning to include all items
-                if current.has_more_preceding {
-                    oldest_visible_index.saturating_sub(buffer)
-                } else {
-                    0
-                },
+                // Sliding window forward: cursor OLDER than visible, query includes current + newer
+                // Query: timestamp >= cursor_timestamp ORDER BY ASC LIMIT N
+                oldest_visible_index.saturating_sub(buffer),
                 oldest_visible_index,
                 ComparisonOperator::GreaterThanOrEqual,
-                true,
+                true, // reverse ORDER BY to ASC
             ),
         };
 
-        // Dynamic limit: items from cursor to far visible edge + buffer
-        let limit = (cursor_index.max(newest_visible_index) - cursor_index.min(oldest_visible_index) + 1) + buffer;
+        // Limit: from cursor to far visible edge + buffer for new items
+        let visible_span = newest_visible_index.saturating_sub(oldest_visible_index) + 1;
+        let limit = visible_span + 2 * buffer;
 
-        tracing::debug!(
-            "slide_window({:?}): visible=[{},{}], cursor={}, limit={}",
-            direction, oldest_visible_index, newest_visible_index, cursor_index, limit
-        );
-
-        // Set pending state for callback
-        let continuation = current.items.get(intersection_index)
+        // Get continuation item (the cursor item whose timestamp we use)
+        let continuation = current.items.get(cursor_index)
             .map(|item| item.entity().id())
-            .expect("intersection item must exist");
+            .expect("cursor item must exist");
+
+        // Debounce: skip if cursor hasn't moved significantly from last request
+        let threshold = self.screen_items(); // T = S items
+        let last_cont = match direction {
+            LoadDirection::Backward => self.last_backward_continuation.peek(),
+            LoadDirection::Forward => self.last_forward_continuation.peek(),
+        };
+        if let Some(last_id) = last_cont {
+            if let Some(last_idx) = current.items.iter().position(|item| item.entity().id() == last_id) {
+                let distance = if cursor_index > last_idx {
+                    cursor_index - last_idx
+                } else {
+                    last_idx - cursor_index
+                };
+                if distance <= threshold {
+                    tracing::debug!("[slide_window] debounce: cursor only {} items from last (threshold={})", distance, threshold);
+                    return;
+                }
+            }
+        }
+
+        // Update last continuation for this direction
+        match direction {
+            LoadDirection::Backward => self.last_backward_continuation.set(Some(continuation)),
+            LoadDirection::Forward => self.last_forward_continuation.set(Some(continuation)),
+        }
 
         self.pending.set(Some(PendingSlide {
             continuation,
@@ -452,13 +521,22 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         };
 
         let selection = Selection {
-            predicate,
+            predicate: predicate.clone(),
             order_by: Some(order_by),
             limit: Some((limit + 1) as u64), // +1 to detect has_more
         };
 
+        // Debug: log first and last item timestamps to verify array ordering
+        let first_ts = current.items.first().and_then(|i| i.entity().value("timestamp"));
+        let last_ts = current.items.last().and_then(|i| i.entity().value("timestamp"));
+        tracing::info!(
+            "[slide_window] cursor_index={}, oldest_vis={}, newest_vis={}, max={}, limit={}, first_ts={:?}, last_ts={:?}",
+            cursor_index, oldest_visible_index, newest_visible_index, max_index, limit, first_ts, last_ts
+        );
+        tracing::info!("[slide_window] update_selection: {}", selection);
+
         if let Err(e) = self.livequery.update_selection(selection) {
-            tracing::error!("Failed to update selection for {:?} slide: {}", direction, e);
+            tracing::error!("[slide_window] FAILED to update selection: {}", e);
         }
     }
 
@@ -479,6 +557,15 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let Some(cursor_value) = cursor_item.entity().value(field_name) else {
             return self.predicate.clone();
         };
+
+        // Debug: log the cursor item's ID and timestamp
+        tracing::info!(
+            "[build_cursor_predicate] cursor_index={}, entity_id={}, field={}, value={:?}",
+            cursor_index,
+            cursor_item.entity().id(),
+            field_name,
+            cursor_value
+        );
 
         let cursor_predicate = Predicate::Comparison {
             left: Box::new(Expr::Path(PathExpr::simple(field_name))),
