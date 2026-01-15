@@ -77,8 +77,11 @@ pub enum LoadDirection {
 /// Pending window slide operation
 #[derive(Clone, Debug)]
 struct PendingSlide {
-    /// Entity to anchor scroll position after slide
+    /// Entity ID of cursor item (used for debouncing)
+    #[allow(dead_code)]
     continuation: EntityId,
+    /// Entity ID of visible edge item (used for scroll stability anchor)
+    anchor: EntityId,
     /// Expected result count (request limit+1 to detect has_more)
     limit: usize,
     /// Direction of the slide
@@ -201,11 +204,14 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             let mut items: Vec<V> = changeset.resultset.peek();
             tracing::info!("[subscription] processing {} items, current has {}", items.len(), current.items.len());
 
-            // Consume pending slide state - but only if we received enough items
+            // Consume pending slide state - but only when the query is fully loaded
             // This prevents intermediate callbacks (from incremental delta application) from
-            // incorrectly consuming the slide before the full result is ready
+            // incorrectly consuming the slide before the full result is ready.
+            // The is_loaded() check handles both cases:
+            // - Normal case: enough items returned, query is loaded
+            // - Edge case: fewer items than limit (at data boundary), but query is still loaded
             let pending_slide = pending_clone.peek();
-            let should_process_slide = pending_slide.as_ref().map(|s| items.len() >= s.limit).unwrap_or(false);
+            let should_process_slide = pending_slide.is_some() && changeset.resultset.is_loaded();
             let slide = if should_process_slide {
                 pending_clone.set(None);
                 pending_slide
@@ -251,11 +257,11 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
                     }
                 };
 
-                // Find intersection item for scroll anchoring
-                let (intersection, error) = match items.iter().position(|item| item.entity().id() == slide.continuation) {
+                // Find anchor item for scroll stability (visible edge item, not cursor)
+                let (intersection, error) = match items.iter().position(|item| item.entity().id() == slide.anchor) {
                     Some(index) => (
                         Some(Intersection {
-                            entity_id: slide.continuation,
+                            entity_id: slide.anchor,
                             index,
                             direction: slide.direction,
                         }),
@@ -267,8 +273,8 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
                             (None, None)
                         } else {
                             (None, Some(format!(
-                                "Intersection failed: {} not found in result",
-                                slide.continuation
+                                "Intersection failed: anchor {} not found in result",
+                                slide.anchor
                             )))
                         }
                     }
@@ -466,10 +472,13 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let visible_span = newest_visible_index.saturating_sub(oldest_visible_index) + 1;
         let limit = visible_span + 2 * buffer;
 
-        // Get continuation item (the cursor item whose timestamp we use)
+        // Get continuation item (cursor for debouncing) and anchor item (visible edge for scroll stability)
         let continuation = current.items.get(cursor_index)
             .map(|item| item.entity().id())
             .expect("cursor item must exist");
+        let anchor = current.items.get(intersection_index)
+            .map(|item| item.entity().id())
+            .expect("anchor item must exist");
 
         // Debounce: skip if cursor hasn't moved significantly from last request
         let threshold = self.screen_items(); // T = S items
@@ -484,7 +493,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
                 } else {
                     last_idx - cursor_index
                 };
-                if distance <= threshold {
+                if distance < threshold {
                     tracing::debug!("[slide_window] debounce: cursor only {} items from last (threshold={})", distance, threshold);
                     return;
                 }
@@ -499,6 +508,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
 
         self.pending.set(Some(PendingSlide {
             continuation,
+            anchor,
             limit,
             direction,
             reversed_order,

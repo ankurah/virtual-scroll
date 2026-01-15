@@ -226,6 +226,11 @@ impl<V: View + Clone + Send + Sync + 'static> MockRenderer<V> {
         (first_idx, last_idx)
     }
 
+    /// Get the total content height (sum of all item heights).
+    pub fn content_height(&self) -> i32 {
+        self.content_height
+    }
+
     /// Get visible range info: (first_visible_ts, last_visible_ts, items_above, items_below).
     #[allow(dead_code)]
     pub fn visible_range(&self) -> (i64, i64, usize, usize) {
