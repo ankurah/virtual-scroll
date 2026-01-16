@@ -98,6 +98,21 @@ pub enum ScrollMode {
     Forward,  // User scrolling back toward live
 }
 
+/// Debug info about scroll position and buffer state
+#[derive(Clone, Debug, Default)]
+pub struct ScrollDebugInfo {
+    /// Items above the visible area (buffer before)
+    pub items_above: usize,
+    /// Items below the visible area (buffer after)
+    pub items_below: usize,
+    /// Threshold that triggers pagination (screen_items)
+    pub trigger_threshold: usize,
+    /// Index of first visible item
+    pub first_visible_index: usize,
+    /// Index of last visible item
+    pub last_visible_index: usize,
+}
+
 // ============================================================================
 // Helper Functions
 // ============================================================================
@@ -132,6 +147,8 @@ pub struct ScrollManager<V: View + Clone + Send + Sync + 'static> {
     /// Last continuation items per direction for debouncing
     last_backward_continuation: Mut<Option<EntityId>>,
     last_forward_continuation: Mut<Option<EntityId>>,
+    /// Debug info about current scroll position and buffer state
+    debug_info: Mut<ScrollDebugInfo>,
     minimum_row_height: u32,
     buffer_factor: f64,
     viewport_height: u32,
@@ -181,6 +198,10 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let mode: Mut<ScrollMode> = Mut::new(ScrollMode::Live);
         let last_backward_continuation: Mut<Option<EntityId>> = Mut::new(None);
         let last_forward_continuation: Mut<Option<EntityId>> = Mut::new(None);
+        let debug_info: Mut<ScrollDebugInfo> = Mut::new(ScrollDebugInfo {
+            trigger_threshold: screen_items,
+            ..Default::default()
+        });
 
         // Determine if we need to reverse results for display
         let is_desc = display_order
@@ -309,6 +330,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             pending,
             last_backward_continuation,
             last_forward_continuation,
+            debug_info,
             minimum_row_height,
             buffer_factor,
             viewport_height,
@@ -378,6 +400,11 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         format!("{}", selection)
     }
 
+    /// Get debug info about scroll position and buffer state
+    pub fn debug_info(&self) -> Read<ScrollDebugInfo> {
+        self.debug_info.read()
+    }
+
     /// Notify the scroll manager of visible item changes
     ///
     /// # Arguments
@@ -412,12 +439,44 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let items_above = first_visible_index;
         let items_below = current.items.len().saturating_sub(last_visible_index + 1);
 
+        // Update debug info
+        self.debug_info.set(ScrollDebugInfo {
+            items_above,
+            items_below,
+            trigger_threshold: screen,
+            first_visible_index,
+            last_visible_index,
+        });
+
         tracing::debug!(
             "[on_scroll] indices: first={}, last={}, above={}, below={}",
             first_visible_index, last_visible_index, items_above, items_below
         );
 
-        // Check thresholds
+        // Exit Live mode when at least one item scrolls off the bottom (item-based, not pixel-based)
+        // This makes "Jump to Current" button appear when user has scrolled enough to hide an item
+        if self.mode.peek() == ScrollMode::Live && items_below > 0 {
+            tracing::info!("[on_scroll] Exiting Live mode (item scrolled off bottom, items_below={})", items_below);
+            self.mode.set(ScrollMode::Backward);
+            // Update visible_set to reflect mode change (shouldAutoScroll)
+            let mut updated = current.clone();
+            updated.should_auto_scroll = false;
+            self.visible_set.set(updated);
+        }
+
+        // Re-enter Live mode when scrolled back to the absolute bottom
+        // Conditions: at the newest edge, last item visible, nothing below viewport
+        let at_bottom = !current.has_more_following && items_below == 0;
+        if self.mode.peek() != ScrollMode::Live && at_bottom {
+            tracing::info!("[on_scroll] Re-entering Live mode (scrolled to bottom)");
+            self.mode.set(ScrollMode::Live);
+            // Update visible_set to reflect mode change (shouldAutoScroll)
+            let mut updated = current.clone();
+            updated.should_auto_scroll = true;
+            self.visible_set.set(updated);
+        }
+
+        // Check thresholds for pagination
         let backward_threshold = scrolling_backward && items_above <= screen && current.has_more_preceding;
         let forward_threshold = !scrolling_backward && items_below <= screen && current.has_more_following;
 
