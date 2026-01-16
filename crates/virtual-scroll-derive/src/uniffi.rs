@@ -45,13 +45,23 @@ fn generate_impl(
     let visible_set_signal_name = format_ident!("{}VisibleSetSignal", model_name);
     let intersection_name = format_ident!("{}Intersection", model_name);
     let callback_name = format_ident!("{}VisibleSetCallback", model_name);
+    let debug_info_name = format_ident!("{}ScrollDebugInfo", model_name);
+    let debug_info_signal_name = format_ident!("{}ScrollDebugInfoSignal", model_name);
+    let debug_callback_name = format_ident!("{}ScrollDebugInfoCallback", model_name);
 
     quote! {
-        // Callback interface for signal subscription
+        // Callback interface for visible_set signal subscription
         #[cfg(feature = "uniffi")]
         #[::uniffi::export(callback_interface)]
         pub trait #callback_name: Send + Sync {
             fn on_change(&self, value: ::std::sync::Arc<#visible_set_name>);
+        }
+
+        // Callback interface for debug_info signal subscription
+        #[cfg(feature = "uniffi")]
+        #[::uniffi::export(callback_interface)]
+        pub trait #debug_callback_name: Send + Sync {
+            fn on_change(&self, value: ::std::sync::Arc<#debug_info_name>);
         }
 
         #[cfg(feature = "uniffi")]
@@ -174,6 +184,93 @@ fn generate_impl(
                 }
             }
 
+            /// Debug info about scroll position and buffer state
+            #[derive(::uniffi::Object)]
+            pub struct #debug_info_name {
+                items_above: u32,
+                items_below: u32,
+                trigger_threshold: u32,
+                first_visible_index: u32,
+                last_visible_index: u32,
+            }
+
+            #[::uniffi::export]
+            impl #debug_info_name {
+                #[uniffi::method]
+                pub fn items_above(&self) -> u32 {
+                    self.items_above
+                }
+
+                #[uniffi::method]
+                pub fn items_below(&self) -> u32 {
+                    self.items_below
+                }
+
+                #[uniffi::method]
+                pub fn trigger_threshold(&self) -> u32 {
+                    self.trigger_threshold
+                }
+
+                #[uniffi::method]
+                pub fn first_visible_index(&self) -> u32 {
+                    self.first_visible_index
+                }
+
+                #[uniffi::method]
+                pub fn last_visible_index(&self) -> u32 {
+                    self.last_visible_index
+                }
+            }
+
+            impl #debug_info_name {
+                fn from_core(core: &::ankurah_virtual_scroll::ScrollDebugInfo) -> Arc<Self> {
+                    Arc::new(Self {
+                        items_above: core.items_above as u32,
+                        items_below: core.items_below as u32,
+                        trigger_threshold: core.trigger_threshold as u32,
+                        first_visible_index: core.first_visible_index as u32,
+                        last_visible_index: core.last_visible_index as u32,
+                    })
+                }
+            }
+
+            /// Signal wrapper for debug_info - exposes get() and subscribe()
+            #[derive(::uniffi::Object)]
+            pub struct #debug_info_signal_name {
+                manager: Arc<#scroll_manager_name>,
+                _subscriptions: ::std::sync::Mutex<Vec<::ankurah_virtual_scroll::ankurah_signals::SubscriptionGuard>>,
+            }
+
+            #[::uniffi::export]
+            impl #debug_info_signal_name {
+                #[uniffi::method]
+                pub fn get(&self) -> Arc<#debug_info_name> {
+                    #debug_info_name::from_core(&self.manager.0.debug_info().get())
+                }
+
+                #[uniffi::method]
+                pub fn subscribe(&self, callback: Box<dyn #debug_callback_name>) {
+                    let cb = Arc::new(callback);
+                    let signal = self.manager.0.debug_info();
+                    let initial = #debug_info_name::from_core(&signal.get());
+                    let cb_clone = cb.clone();
+                    let guard = signal.subscribe(move |debug_info| {
+                        cb_clone.on_change(#debug_info_name::from_core(&debug_info));
+                    });
+                    self._subscriptions.lock().unwrap().push(guard);
+                    cb.on_change(initial);
+                }
+            }
+
+            impl #debug_info_signal_name {
+                fn new(manager: Arc<#scroll_manager_name>) -> Arc<Self> {
+                    Arc::new(Self {
+                        manager,
+                        _subscriptions: ::std::sync::Mutex::new(Vec::new()),
+                    })
+                }
+            }
+
             /// UniFFI wrapper for ScrollManager
             #[derive(::uniffi::Object)]
             pub struct #scroll_manager_name(::ankurah_virtual_scroll::ScrollManager<#view_path>);
@@ -246,6 +343,12 @@ fn generate_impl(
                 #[uniffi::method]
                 pub fn current_selection(&self) -> String {
                     self.0.current_selection()
+                }
+
+                /// Get debug info signal for scroll position and buffer state
+                #[uniffi::method]
+                pub fn debug_info(self: Arc<Self>) -> Arc<#debug_info_signal_name> {
+                    #debug_info_signal_name::new(self)
                 }
             }
         }
