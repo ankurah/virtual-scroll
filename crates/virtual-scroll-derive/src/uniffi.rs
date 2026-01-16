@@ -192,6 +192,8 @@ fn generate_impl(
                 trigger_threshold: u32,
                 first_visible_index: u32,
                 last_visible_index: u32,
+                update_count: u32,
+                update_pending: bool,
             }
 
             #[::uniffi::export]
@@ -220,6 +222,16 @@ fn generate_impl(
                 pub fn last_visible_index(&self) -> u32 {
                     self.last_visible_index
                 }
+
+                #[uniffi::method]
+                pub fn update_count(&self) -> u32 {
+                    self.update_count
+                }
+
+                #[uniffi::method]
+                pub fn update_pending(&self) -> bool {
+                    self.update_pending
+                }
             }
 
             impl #debug_info_name {
@@ -230,6 +242,8 @@ fn generate_impl(
                         trigger_threshold: core.trigger_threshold as u32,
                         first_visible_index: core.first_visible_index as u32,
                         last_visible_index: core.last_visible_index as u32,
+                        update_count: core.update_count,
+                        update_pending: core.update_pending,
                     })
                 }
             }
