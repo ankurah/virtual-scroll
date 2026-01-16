@@ -111,6 +111,10 @@ pub struct ScrollDebugInfo {
     pub first_visible_index: usize,
     /// Index of last visible item
     pub last_visible_index: usize,
+    /// Number of pagination updates initiated
+    pub update_count: u32,
+    /// Whether a pagination update is currently pending
+    pub update_pending: bool,
 }
 
 // ============================================================================
@@ -149,6 +153,8 @@ pub struct ScrollManager<V: View + Clone + Send + Sync + 'static> {
     last_forward_continuation: Mut<Option<EntityId>>,
     /// Debug info about current scroll position and buffer state
     debug_info: Mut<ScrollDebugInfo>,
+    /// Counter for pagination updates initiated
+    update_count: std::sync::atomic::AtomicU32,
     minimum_row_height: u32,
     buffer_factor: f64,
     viewport_height: u32,
@@ -331,6 +337,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             last_backward_continuation,
             last_forward_continuation,
             debug_info,
+            update_count: std::sync::atomic::AtomicU32::new(0),
             minimum_row_height,
             buffer_factor,
             viewport_height,
@@ -446,6 +453,8 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             trigger_threshold: screen,
             first_visible_index,
             last_visible_index,
+            update_count: self.update_count.load(std::sync::atomic::Ordering::Relaxed),
+            update_pending: self.pending.peek().is_some(),
         });
 
         tracing::debug!(
@@ -564,6 +573,9 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             LoadDirection::Backward => self.last_backward_continuation.set(Some(continuation)),
             LoadDirection::Forward => self.last_forward_continuation.set(Some(continuation)),
         }
+
+        // Increment update counter
+        self.update_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
         self.pending.set(Some(PendingSlide {
             continuation,
