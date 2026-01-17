@@ -70,8 +70,13 @@ async fn test_scroll_live_to_oldest_and_back() -> Result<(), anyhow::Error> {
 
     // === PHASE 1: Scroll backward to oldest edge ===
 
-    // Scroll up: offset 1000→600, visible 1042-1051
-    r.up_no_render(400, 1042, 1051).await;
+    // Scroll up: offset 1000→600, visible 1042-1051, exits Live mode
+    r.scroll_up_and_expect(
+        400, 30, 1030..=1059, None,  // same items, no pagination yet
+        true, false, false,          // mode changed, should_auto_scroll=false
+        1042, 1051, 600,
+        None,
+    ).await?;
 
     // Trigger backward: offset 600→500, visible indices 10-19 → ts 1040-1049, items_above=10
     // For backward: anchor = newest_visible = ts 1049
@@ -79,7 +84,7 @@ async fn test_scroll_live_to_oldest_and_back() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        "TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51",
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
     ).await?;
 
     // Continue scrolling backward toward oldest edge
@@ -93,7 +98,7 @@ async fn test_scroll_live_to_oldest_and_back() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         500, 50, 1000..=1049, Some(1029),
         false, true, false, 1020, 1029, 1000,
-        "TRUE AND \"timestamp\" <= 1049 ORDER BY timestamp DESC LIMIT 51",
+        Some("TRUE AND \"timestamp\" <= 1049 ORDER BY timestamp DESC LIMIT 51"),
     ).await?;
 
     // Scroll to top (50 items 1000-1049, starting at offset 1000)
@@ -119,7 +124,7 @@ async fn test_scroll_live_to_oldest_and_back() -> Result<(), anyhow::Error> {
     r.scroll_down_and_expect(
         500, 50, 1010..=1059, Some(1030),
         true, false, true, 1050, 1059, 2000,
-        "TRUE AND \"timestamp\" >= 1010 ORDER BY timestamp ASC LIMIT 51",
+        Some("TRUE AND \"timestamp\" >= 1010 ORDER BY timestamp ASC LIMIT 51"),
     ).await?;
 
     assert_eq!(sm.mode(), ankurah_virtual_scroll::ScrollMode::Live);
@@ -154,15 +159,20 @@ async fn test_scroll_to_absolute_oldest() -> Result<(), anyhow::Error> {
     r.assert(&vs, 30, 1030..=1059, None, true, false, true, 1050, 1059);
 
     // First backward pagination: 30 → 50 items
-    // up_no_render(400): offset 600, visible ts 1042-1051
+    // scroll_up(400): offset 1000→600, exits Live mode (mode-change render)
+    r.scroll_up_and_expect(
+        400, 30, 1030..=1059, None,  // same items, no pagination yet
+        true, false, false,          // mode changed, should_auto_scroll=false
+        1042, 1051, 600,
+        None,
+    ).await?;
     // scroll_up(100): offset 500, visible indices 10-19 → ts 1040-1049
     // For backward: anchor = newest_visible = ts 1049
     // After: 50 items, anchor at index 39 → visible indices 30-39, offset 1500
-    r.up_no_render(400, 1042, 1051).await;
     r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        "TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51",
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
     ).await?;
 
     // Continue backward until we hit the oldest edge
@@ -175,7 +185,7 @@ async fn test_scroll_to_absolute_oldest() -> Result<(), anyhow::Error> {
     let vs = r.scroll_up_and_expect(
         500, 50, 1000..=1049, Some(1029),
         false, true, false, 1020, 1029, 1000,
-        "TRUE AND \"timestamp\" <= 1049 ORDER BY timestamp DESC LIMIT 51",
+        Some("TRUE AND \"timestamp\" <= 1049 ORDER BY timestamp DESC LIMIT 51"),
     ).await?;
 
     // CRITICAL: has_more_preceding must be false
@@ -212,12 +222,19 @@ async fn test_small_dataset_no_pagination() -> Result<(), anyhow::Error> {
     let vs = r.next_render().await?;
     r.assert(&vs, 15, 1000..=1014, None, false, false, true, 1005, 1014);
 
-    // Try scrolling up - should NOT trigger pagination since has_more_preceding=false
-    r.up_no_render(200, 1001, 1010).await;
+    // Try scrolling up - exits Live mode (mode-change render) but NOT pagination (has_more_preceding=false)
+    // offset 250→50, visible indices 1-10 → ts 1001-1010, items_below=4 → exits Live
+    r.scroll_up_and_expect(
+        200, 15, 1000..=1014, None,  // same items, no pagination
+        false, false, false,         // mode changed, should_auto_scroll=false
+        1001, 1010, 50,
+        None,
+    ).await?;
+    // Continue scrolling within Backward mode
     r.up_no_render(50, 1000, 1009).await;
 
     assert_eq!(r.scroll_offset, 0);
-    assert_eq!(sm.mode(), ankurah_virtual_scroll::ScrollMode::Live);
+    assert_eq!(sm.mode(), ankurah_virtual_scroll::ScrollMode::Backward);
 
     Ok(())
 }
@@ -251,15 +268,21 @@ async fn test_one_more_than_live_window() -> Result<(), anyhow::Error> {
     r.assert(&vs, 30, 1001..=1030, None, true, false, true, 1021, 1030);
 
     // Scroll backward to get the missing item
-    // up_no_render(400): offset 600, visible indices 12-21 → ts 1013-1022
+    // up(400): offset 600, visible indices 12-21 → ts 1013-1022
+    // items_below = 30 - 21 - 1 = 8 <= screen(10) → exits Live mode
+    // After mode change: same items but should_auto_scroll=false
+    r.scroll_up_and_expect(
+        400, 30, 1001..=1030, None,
+        true, false, false, 1013, 1022, 600,
+        None,
+    ).await?;
     // scroll_up(100): offset 500, visible indices 10-19 → ts 1011-1020
     // For backward: anchor = newest_visible = ts 1020
     // After: 31 items, anchor at index 20 → visible indices 11-20, offset 550
-    r.up_no_render(400, 1013, 1022).await;
     let vs = r.scroll_up_and_expect(
         100, 31, 1000..=1030, Some(1020),
         false, true, false, 1011, 1020, 550,
-        "TRUE AND \"timestamp\" <= 1030 ORDER BY timestamp DESC LIMIT 51",
+        Some("TRUE AND \"timestamp\" <= 1030 ORDER BY timestamp DESC LIMIT 51"),
     ).await?;
 
     // Now has_more_preceding should be false - we have all 31 items
@@ -293,15 +316,20 @@ async fn test_debounce_rapid_scrolls() -> Result<(), anyhow::Error> {
     r.assert(&vs, 30, 1030..=1059, None, true, false, true, 1050, 1059);
 
     // First scroll triggers pagination
-    // up_no_render(400): offset 600, visible indices 12-21 → ts 1042-1051
+    // scroll_up(400): offset 1000→600, exits Live mode (mode-change render)
+    r.scroll_up_and_expect(
+        400, 30, 1030..=1059, None,  // same items, no pagination yet
+        true, false, false,          // mode changed, should_auto_scroll=false
+        1042, 1051, 600,
+        None,
+    ).await?;
     // scroll_up(100): offset 500, visible indices 10-19 → ts 1040-1049
     // For backward: anchor = newest_visible = ts 1049
     // After: 50 items, anchor at index 39 → visible indices 30-39, offset 1500
-    r.up_no_render(400, 1042, 1051).await;
     r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        "TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51",
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
     ).await?;
 
     // Small scrolls within buffer - should NOT trigger new pagination
@@ -571,15 +599,20 @@ async fn test_mode_transitions() -> Result<(), anyhow::Error> {
     assert_eq!(sm.mode(), ankurah_virtual_scroll::ScrollMode::Live);
 
     // Scroll backward → Backward mode
-    // up_no_render(400): offset 600, visible indices 12-21 → ts 1042-1051
+    // scroll_up(400): offset 1000→600, exits Live mode (mode-change render)
+    r.scroll_up_and_expect(
+        400, 30, 1030..=1059, None,  // same items, no pagination yet
+        true, false, false,          // mode changed, should_auto_scroll=false
+        1042, 1051, 600,
+        None,
+    ).await?;
     // scroll_up(100): offset 500, visible indices 10-19 → ts 1040-1049
     // For backward: anchor = newest_visible = ts 1049
     // After: 50 items, anchor at index 39 → visible indices 30-39, offset 1500
-    r.up_no_render(400, 1042, 1051).await;
     r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        "TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51",
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
     ).await?;
     assert_eq!(sm.mode(), ankurah_virtual_scroll::ScrollMode::Backward);
 
@@ -620,8 +653,17 @@ async fn test_exactly_live_window_items() -> Result<(), anyhow::Error> {
     assert_eq!(*ts.first().unwrap(), 1000);
     assert_eq!(*ts.last().unwrap(), 1029);
 
-    // Scroll through entire content - no pagination should trigger
-    r.up_no_render(500, 1010, 1019).await;
+    // Scroll up - exits Live mode (items_below = 10 <= screen_items)
+    // Mode-change render fires (has_more_preceding=true still, query hasn't completed)
+    // Pagination query is triggered but returns same 30 items (no new data)
+    // Since item set unchanged, only the mode-change render fires
+    r.scroll_up_and_expect(
+        500, 30, 1000..=1029, None,
+        true, false, false, 1010, 1019, 500,
+        Some("TRUE AND \"timestamp\" <= 1029 ORDER BY timestamp DESC LIMIT 51"),
+    ).await?;
+
+    // Continue scrolling to top - no additional renders (already in Backward mode)
     r.up_no_render(500, 1000, 1009).await;
     assert_eq!(r.scroll_offset, 0);
 
@@ -686,12 +728,17 @@ async fn test_debounce_escape() -> Result<(), anyhow::Error> {
 
     let _ = r.next_render().await?;
 
-    // First pagination
-    r.up_no_render(400, 1042, 1051).await;
+    // First pagination - scroll_up(400) exits Live mode, scroll_up(100) triggers pagination
+    r.scroll_up_and_expect(
+        400, 30, 1030..=1059, None,  // same items, no pagination yet
+        true, false, false,          // mode changed, should_auto_scroll=false
+        1042, 1051, 600,
+        None,
+    ).await?;
     r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        "TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51",
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
     ).await?;
 
     // Small scrolls that stay within debounce threshold
@@ -707,7 +754,7 @@ async fn test_debounce_escape() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         850, 50, 1000..=1049, Some(1029),
         false, true, false, 1020, 1029, 1000,
-        "TRUE AND \"timestamp\" <= 1049 ORDER BY timestamp DESC LIMIT 51",
+        Some("TRUE AND \"timestamp\" <= 1049 ORDER BY timestamp DESC LIMIT 51"),
     ).await?;
 
     Ok(())
@@ -737,13 +784,18 @@ async fn test_immediate_pagination_trigger() -> Result<(), anyhow::Error> {
 
     let _ = r.next_render().await?;
 
-    // One big scroll that immediately triggers pagination (no warmup scrolls)
+    // One big scroll that immediately triggers BOTH mode change AND pagination
+    // First: mode-change render (30 items, exits Live mode)
+    // Then: pagination render (50 items)
     // offset 1000→500, visible indices 10-19 → ts 1040-1049, items_above=10 → TRIGGER
     r.scroll_up_and_expect(
-        500, 50, 1010..=1059, Some(1049),
-        true, true, false, 1040, 1049, 1500,
-        "TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51",
+        500, 30, 1030..=1059, None,  // mode-change render first
+        true, false, false,
+        1040, 1049, 500,
+        None,
     ).await?;
+    // Pagination render follows immediately
+    let _ = r.next_render().await?;
 
     Ok(())
 }
@@ -774,12 +826,21 @@ async fn test_exactly_full_window_items() -> Result<(), anyhow::Error> {
     assert_eq!(vs.items.len(), 30);
     assert!(vs.has_more_preceding);
 
-    // Scroll backward to get all 50 items
-    r.up_no_render(400, 1032, 1041).await;
+    // Scroll backward - exits Live mode (items_below = 8 <= screen_items)
+    // After mode change: same items but should_auto_scroll=false
+    r.scroll_up_and_expect(
+        400, 30, 1020..=1049, None,
+        true, false, false, 1032, 1041, 600,
+        None,
+    ).await?;
+    // Continue scrolling to trigger pagination
+    // visible indices 10-19 → ts 1030-1039
+    // Anchor = newest_visible (ts 1039) at new index 39
+    // After: 50 items, anchor at index 39 → offset = cumulative(39) - 500 = 2000 - 500 = 1500
     let vs = r.scroll_up_and_expect(
         100, 50, 1000..=1049, Some(1039),
         false, true, false, 1030, 1039, 1500,
-        "TRUE AND \"timestamp\" <= 1049 ORDER BY timestamp DESC LIMIT 51",
+        Some("TRUE AND \"timestamp\" <= 1049 ORDER BY timestamp DESC LIMIT 51"),
     ).await?;
 
     // Now we have all 50 items
