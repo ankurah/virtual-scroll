@@ -218,7 +218,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let pending_clone = pending.clone();
         let mode_clone = mode.clone();
         let subscription = livequery.subscribe(move |changeset: ChangeSet<V>| {
-            tracing::info!("[subscription] CALLBACK FIRED");
+            tracing::trace!("[subscription] CALLBACK FIRED");
 
             let current = visible_set_clone.peek();
             // Skip if not yet initialized (start() will handle initial set)
@@ -227,7 +227,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
                 return;
             }
             let mut items: Vec<V> = changeset.resultset.peek();
-            tracing::info!("[subscription] processing {} items, current has {}", items.len(), current.items.len());
+            tracing::trace!("[subscription] processing {} items, current has {}", items.len(), current.items.len());
 
             // Consume pending slide state - but only when the query is fully loaded
             // This prevents intermediate callbacks (from incremental delta application) from
@@ -283,14 +283,14 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
                 };
 
                 // Find anchor item for scroll stability (visible edge item, not cursor)
-                tracing::info!(
+                tracing::trace!(
                     "[subscription] Looking for anchor {:?} in {} items",
                     slide.anchor, items.len()
                 );
                 let (intersection, error) = match items.iter().position(|item| item.entity().id() == slide.anchor) {
                     Some(index) => {
                         let anchor_ts = items.get(index).and_then(|i| i.entity().value("timestamp"));
-                        tracing::info!(
+                        tracing::trace!(
                             "[subscription] INTERSECTION: anchor {:?} (ts={:?}) found at index {}",
                             slide.anchor, anchor_ts, index
                         );
@@ -305,7 +305,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
                     },
                     None => {
                         if slide.direction == LoadDirection::Forward {
-                            tracing::info!("[subscription] Forward slide: no overlap, jumping to live");
+                            tracing::trace!("[subscription] Forward slide: no overlap, jumping to live");
                             (None, None)
                         } else {
                             tracing::error!(
@@ -325,7 +325,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
                 (current.has_more_preceding, current.has_more_following, None, None)
             };
 
-            tracing::info!(
+            tracing::trace!(
                 "[subscription] visible_set: items={}, has_more_preceding={}, has_more_following={}",
                 items.len(), has_more_preceding, has_more_following
             );
@@ -376,7 +376,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let live_window = self.live_window_size();
         let has_more_preceding = items.len() >= live_window;
 
-        tracing::info!(
+        tracing::debug!(
             "[start] initial visible_set: items={}, has_more_preceding={}",
             items.len(), has_more_preceding
         );
@@ -435,7 +435,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let current = self.visible_set.peek();
         let screen = self.screen_items();
 
-        tracing::debug!(
+        tracing::trace!(
             "[on_scroll] window: items={}, has_more_preceding={}, has_more_following={}",
             current.items.len(), current.has_more_preceding, current.has_more_following
         );
@@ -469,7 +469,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             update_pending: self.pending.peek().is_some(),
         });
 
-        tracing::debug!(
+        tracing::trace!(
             "[on_scroll] indices: first={}, last={}, above={}, below={}",
             first_visible_index, last_visible_index, items_above, items_below
         );
@@ -477,7 +477,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         // Exit Live mode when at least one item scrolls off the bottom (item-based, not pixel-based)
         // This makes "Jump to Current" button appear when user has scrolled enough to hide an item
         if self.mode.peek() == ScrollMode::Live && items_below > 0 {
-            tracing::info!("[on_scroll] Exiting Live mode (item scrolled off bottom, items_below={})", items_below);
+            tracing::debug!("[on_scroll] Exiting Live mode (item scrolled off bottom, items_below={})", items_below);
             self.mode.set(ScrollMode::Backward);
             // Update visible_set to reflect mode change (shouldAutoScroll)
             let mut updated = current.clone();
@@ -489,7 +489,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         // Conditions: at the newest edge, last item visible, nothing below viewport
         let at_bottom = !current.has_more_following && items_below == 0;
         if self.mode.peek() != ScrollMode::Live && at_bottom {
-            tracing::info!("[on_scroll] Re-entering Live mode (scrolled to bottom)");
+            tracing::debug!("[on_scroll] Re-entering Live mode (scrolled to bottom)");
             self.mode.set(ScrollMode::Live);
             // Update visible_set to reflect mode change (shouldAutoScroll)
             let mut updated = current.clone();
@@ -503,11 +503,11 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
 
         // Trigger when buffer is at or below S items (one screenful remaining)
         if backward_threshold {
-            tracing::info!("[on_scroll] TRIGGERING BACKWARD PAGINATION");
+            tracing::debug!("[on_scroll] TRIGGERING BACKWARD PAGINATION");
             self.mode.set(ScrollMode::Backward);
             self.slide_window(&current, first_visible_index, last_visible_index, LoadDirection::Backward);
         } else if forward_threshold {
-            tracing::info!("[on_scroll] TRIGGERING FORWARD PAGINATION");
+            tracing::debug!("[on_scroll] TRIGGERING FORWARD PAGINATION");
             self.mode.set(ScrollMode::Forward);
             self.slide_window(&current, first_visible_index, last_visible_index, LoadDirection::Forward);
         }
@@ -567,13 +567,13 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let oldest_visible_entity = current.items.get(oldest_visible_index)
             .map(|item| item.entity().id());
 
-        tracing::info!(
+        tracing::trace!(
             "[slide_window] DEBOUNCE CHECK: oldest_visible_idx={}, oldest_visible_entity={:?}, array_len={}",
             oldest_visible_index, oldest_visible_entity, current.items.len()
         );
 
         if let Some(last_oldest) = self.last_trigger_oldest_visible.peek() {
-            tracing::info!(
+            tracing::trace!(
                 "[slide_window] last_trigger_oldest_visible={:?}",
                 last_oldest
             );
@@ -582,7 +582,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             let last_idx = current.items.iter()
                 .position(|item| item.entity().id() == last_oldest);
 
-            tracing::info!(
+            tracing::trace!(
                 "[slide_window] last_oldest found at index: {:?}",
                 last_idx
             );
@@ -595,37 +595,37 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
                 } else {
                     oldest_visible_index - l_idx
                 };
-                tracing::info!(
+                tracing::trace!(
                     "[slide_window] distance={}, threshold={} (l_idx={}, oldest_visible_idx={})",
                     distance, threshold, l_idx, oldest_visible_index
                 );
                 if distance < threshold {
-                    tracing::info!(
+                    tracing::trace!(
                         "[slide_window] DEBOUNCE: scrolled {} items < threshold {}, SKIPPING",
                         distance, threshold
                     );
                     return;
                 }
-                tracing::info!(
+                tracing::trace!(
                     "[slide_window] ALLOWING: scrolled {} items >= threshold {}",
                     distance, threshold
                 );
             } else {
                 // Last oldest_visible not found - window shifted past it, allow trigger
-                tracing::info!(
+                tracing::trace!(
                     "[slide_window] ALLOWING: last oldest_visible {:?} NOT FOUND in array of {} items (window shifted)",
                     last_oldest, current.items.len()
                 );
             }
         } else {
-            tracing::info!(
+            tracing::trace!(
                 "[slide_window] ALLOWING: no last_trigger_oldest_visible (first trigger)"
             );
         }
 
         // Update last trigger oldest_visible for debouncing
         if let Some(entity) = oldest_visible_entity {
-            tracing::info!(
+            tracing::trace!(
                 "[slide_window] Setting last_trigger_oldest_visible = {:?}",
                 entity
             );
@@ -668,11 +668,11 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         // Debug: log first and last item timestamps to verify array ordering
         let first_ts = current.items.first().and_then(|i| i.entity().value("timestamp"));
         let last_ts = current.items.last().and_then(|i| i.entity().value("timestamp"));
-        tracing::info!(
+        tracing::trace!(
             "[slide_window] cursor_index={}, oldest_vis={}, newest_vis={}, max={}, limit={}, first_ts={:?}, last_ts={:?}",
             cursor_index, oldest_visible_index, newest_visible_index, max_index, limit, first_ts, last_ts
         );
-        tracing::info!("[slide_window] update_selection: {}", selection);
+        tracing::debug!("[slide_window] update_selection: {}", selection);
 
         if let Err(e) = self.livequery.update_selection(selection) {
             tracing::error!("[slide_window] FAILED to update selection: {}", e);
@@ -698,7 +698,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         };
 
         // Debug: log the cursor item's ID and timestamp
-        tracing::info!(
+        tracing::trace!(
             "[build_cursor_predicate] cursor_index={}, entity_id={}, field={}, value={:?}",
             cursor_index,
             cursor_item.entity().id(),

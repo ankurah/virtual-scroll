@@ -239,7 +239,7 @@ async fn test_intersection_anchoring_forward() -> Result<(), anyhow::Error> {
     let _ = r.scroll_down_collect(500).await;
 
     // Trigger forward pagination at newest edge
-    let renders = r.scroll_down_collect(500).await;
+    let _renders = r.scroll_down_collect(500).await;
 
     // Verify we're still in Backward mode (haven't necessarily triggered forward pagination
     // or re-entered Live mode - depends on exact scroll positions)
