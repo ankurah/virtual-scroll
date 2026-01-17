@@ -103,7 +103,7 @@ pub struct MockRenderer<V: View + Clone + Send + Sync + 'static> {
     content_height: i32,
     viewport_height: i32,
     item_heights: Vec<i32>,
-    item_ids: Vec<EntityId>,
+    pub item_ids: Vec<EntityId>,
     item_timestamps: Vec<i64>,
     prev_item_count: usize,
 }
@@ -129,24 +129,33 @@ impl<V: View + Clone + Send + Sync + 'static> MockRenderer<V> {
         }
     }
 
-    /// Wait for the next VisibleSet update from ScrollManager.
+    /// Collect all renders that arrive within a timeout period.
     ///
-    /// Caches item data (heights, ids, timestamps) and adjusts scroll_offset based on
-    /// the intersection hint:
-    /// - **Backward expansion**: Items added at START (older side); shift scroll to compensate
-    /// - **Forward expansion**: Items added at END (newer side); no scroll adjustment needed
-    /// - **Sliding**: Window moves; anchor scroll to the intersection item
-    pub async fn next_render(&mut self) -> Result<VisibleSet<V>, MockRendererError> {
-        let vs = self
-            .rx
-            .recv()
+    /// Use this to drain all pending renders after a scroll that might produce
+    /// multiple renders (mode-change + pagination). Returns renders in order received.
+    pub async fn collect_renders(&mut self, timeout_ms: u64) -> Vec<VisibleSet<V>> {
+        let mut renders = Vec::new();
+        loop {
+            match tokio::time::timeout(
+                std::time::Duration::from_millis(timeout_ms),
+                self.rx.recv(),
+            )
             .await
-            .ok_or(MockRendererError("channel closed"))?;
-
-        if let Some(ref err) = vs.error {
-            return Err(MockRendererError(Box::leak(err.clone().into_boxed_str())));
+            {
+                Ok(Some(vs)) => {
+                    // Process the render (update local state)
+                    self.process_render(&vs);
+                    renders.push(vs);
+                }
+                Ok(None) => break, // channel closed
+                Err(_) => break,   // timeout - no more pending renders
+            }
         }
+        renders
+    }
 
+    /// Process a render and update local state (shared by next_render and collect_renders).
+    fn process_render(&mut self, vs: &VisibleSet<V>) {
         // Cache item data
         self.prev_item_count = self.item_heights.len();
         self.item_heights = vs
@@ -192,6 +201,27 @@ impl<V: View + Clone + Send + Sync + 'static> MockRenderer<V> {
                 }
             }
         }
+    }
+
+    /// Wait for the next VisibleSet update from ScrollManager.
+    ///
+    /// Caches item data (heights, ids, timestamps) and adjusts scroll_offset based on
+    /// the intersection hint:
+    /// - **Backward expansion**: Items added at START (older side); shift scroll to compensate
+    /// - **Forward expansion**: Items added at END (newer side); no scroll adjustment needed
+    /// - **Sliding**: Window moves; anchor scroll to the intersection item
+    pub async fn next_render(&mut self) -> Result<VisibleSet<V>, MockRendererError> {
+        let vs = self
+            .rx
+            .recv()
+            .await
+            .ok_or(MockRendererError("channel closed"))?;
+
+        if let Some(ref err) = vs.error {
+            return Err(MockRendererError(Box::leak(err.clone().into_boxed_str())));
+        }
+
+        self.process_render(&vs);
         Ok(vs)
     }
 
@@ -272,6 +302,38 @@ impl<V: View + Clone + Send + Sync + 'static> MockRenderer<V> {
             Ok(None) => panic!("channel closed"),
             Err(_) => {} // timeout - good
         }
+    }
+
+    /// Scroll up by `px` pixels and collect all resulting renders.
+    ///
+    /// This is deterministic: it scrolls, waits for pagination to settle, then returns
+    /// all renders that occurred (could be 0, 1, or 2 depending on mode-change + pagination).
+    /// Use this when you need to handle variable render counts.
+    pub async fn scroll_up_collect(&mut self, px: i32) -> Vec<VisibleSet<V>> {
+        self.scroll_offset = (self.scroll_offset - px).max(0);
+        let (first_idx, last_idx) = self.visible_indices();
+        if let (Some(&first), Some(&last)) =
+            (self.item_ids.get(first_idx), self.item_ids.get(last_idx))
+        {
+            self.sm.on_scroll(first, last, true);
+        }
+        // Give async operations time to complete, then collect all renders
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        self.collect_renders(100).await
+    }
+
+    /// Scroll down by `px` pixels and collect all resulting renders.
+    pub async fn scroll_down_collect(&mut self, px: i32) -> Vec<VisibleSet<V>> {
+        let max_offset = (self.content_height - self.viewport_height).max(0);
+        self.scroll_offset = (self.scroll_offset + px).min(max_offset);
+        let (first_idx, last_idx) = self.visible_indices();
+        if let (Some(&first), Some(&last)) =
+            (self.item_ids.get(first_idx), self.item_ids.get(last_idx))
+        {
+            self.sm.on_scroll(first, last, true);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        self.collect_renders(100).await
     }
 
     /// Scroll up by `px` pixels and verify a window change is triggered.
