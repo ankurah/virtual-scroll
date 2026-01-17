@@ -148,9 +148,8 @@ pub struct ScrollManager<V: View + Clone + Send + Sync + 'static> {
     mode: Mut<ScrollMode>,
     /// Pending slide operation (set before query, consumed in callback)
     pending: Mut<Option<PendingSlide>>,
-    /// Last continuation items per direction for debouncing
-    last_backward_continuation: Mut<Option<EntityId>>,
-    last_forward_continuation: Mut<Option<EntityId>>,
+    /// Oldest visible item when last trigger fired (for debouncing based on user scroll distance)
+    last_trigger_oldest_visible: Mut<Option<EntityId>>,
     /// Debug info about current scroll position and buffer state
     debug_info: Mut<ScrollDebugInfo>,
     /// Counter for pagination updates initiated
@@ -201,9 +200,8 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         // Create signals
         let visible_set: Mut<VisibleSet<V>> = Mut::new(VisibleSet::default());
         let pending: Mut<Option<PendingSlide>> = Mut::new(None);
+        let last_trigger_oldest_visible: Mut<Option<EntityId>> = Mut::new(None);
         let mode: Mut<ScrollMode> = Mut::new(ScrollMode::Live);
-        let last_backward_continuation: Mut<Option<EntityId>> = Mut::new(None);
-        let last_forward_continuation: Mut<Option<EntityId>> = Mut::new(None);
         let debug_info: Mut<ScrollDebugInfo> = Mut::new(ScrollDebugInfo {
             trigger_threshold: screen_items,
             ..Default::default()
@@ -285,20 +283,35 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
                 };
 
                 // Find anchor item for scroll stability (visible edge item, not cursor)
+                tracing::info!(
+                    "[subscription] Looking for anchor {:?} in {} items",
+                    slide.anchor, items.len()
+                );
                 let (intersection, error) = match items.iter().position(|item| item.entity().id() == slide.anchor) {
-                    Some(index) => (
-                        Some(Intersection {
-                            entity_id: slide.anchor,
-                            index,
-                            direction: slide.direction,
-                        }),
-                        None
-                    ),
+                    Some(index) => {
+                        let anchor_ts = items.get(index).and_then(|i| i.entity().value("timestamp"));
+                        tracing::info!(
+                            "[subscription] INTERSECTION: anchor {:?} (ts={:?}) found at index {}",
+                            slide.anchor, anchor_ts, index
+                        );
+                        (
+                            Some(Intersection {
+                                entity_id: slide.anchor,
+                                index,
+                                direction: slide.direction,
+                            }),
+                            None
+                        )
+                    },
                     None => {
                         if slide.direction == LoadDirection::Forward {
-                            tracing::debug!("Forward slide: no overlap, jumping to live");
+                            tracing::info!("[subscription] Forward slide: no overlap, jumping to live");
                             (None, None)
                         } else {
+                            tracing::error!(
+                                "[subscription] INTERSECTION FAILED: anchor {:?} not found in {} items",
+                                slide.anchor, items.len()
+                            );
                             (None, Some(format!(
                                 "Intersection failed: anchor {} not found in result",
                                 slide.anchor
@@ -334,8 +347,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             visible_set,
             mode,
             pending,
-            last_backward_continuation,
-            last_forward_continuation,
+            last_trigger_oldest_visible,
             debug_info,
             update_count: std::sync::atomic::AtomicU32::new(0),
             minimum_row_height,
@@ -548,30 +560,76 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             .map(|item| item.entity().id())
             .expect("anchor item must exist");
 
-        // Debounce: skip if cursor hasn't moved significantly from last request
+        // Debounce: skip if user hasn't scrolled T items since last trigger
+        // Track the oldest_visible position to measure actual user scroll distance
+        // (not cursor position, which moves with the sliding window)
         let threshold = self.screen_items(); // T = S items
-        let last_cont = match direction {
-            LoadDirection::Backward => self.last_backward_continuation.peek(),
-            LoadDirection::Forward => self.last_forward_continuation.peek(),
-        };
-        if let Some(last_id) = last_cont {
-            if let Some(last_idx) = current.items.iter().position(|item| item.entity().id() == last_id) {
-                let distance = if cursor_index > last_idx {
-                    cursor_index - last_idx
+        let oldest_visible_entity = current.items.get(oldest_visible_index)
+            .map(|item| item.entity().id());
+
+        tracing::info!(
+            "[slide_window] DEBOUNCE CHECK: oldest_visible_idx={}, oldest_visible_entity={:?}, array_len={}",
+            oldest_visible_index, oldest_visible_entity, current.items.len()
+        );
+
+        if let Some(last_oldest) = self.last_trigger_oldest_visible.peek() {
+            tracing::info!(
+                "[slide_window] last_trigger_oldest_visible={:?}",
+                last_oldest
+            );
+
+            // Find where the last trigger's oldest_visible is in current array
+            let last_idx = current.items.iter()
+                .position(|item| item.entity().id() == last_oldest);
+
+            tracing::info!(
+                "[slide_window] last_oldest found at index: {:?}",
+                last_idx
+            );
+
+            if let Some(l_idx) = last_idx {
+                // Distance = how many items user has scrolled since last trigger
+                // For backward scroll: current oldest_visible_index < last trigger's oldest index
+                let distance = if oldest_visible_index < l_idx {
+                    l_idx - oldest_visible_index
                 } else {
-                    last_idx - cursor_index
+                    oldest_visible_index - l_idx
                 };
+                tracing::info!(
+                    "[slide_window] distance={}, threshold={} (l_idx={}, oldest_visible_idx={})",
+                    distance, threshold, l_idx, oldest_visible_index
+                );
                 if distance < threshold {
-                    tracing::debug!("[slide_window] debounce: cursor only {} items from last (threshold={})", distance, threshold);
+                    tracing::info!(
+                        "[slide_window] DEBOUNCE: scrolled {} items < threshold {}, SKIPPING",
+                        distance, threshold
+                    );
                     return;
                 }
+                tracing::info!(
+                    "[slide_window] ALLOWING: scrolled {} items >= threshold {}",
+                    distance, threshold
+                );
+            } else {
+                // Last oldest_visible not found - window shifted past it, allow trigger
+                tracing::info!(
+                    "[slide_window] ALLOWING: last oldest_visible {:?} NOT FOUND in array of {} items (window shifted)",
+                    last_oldest, current.items.len()
+                );
             }
+        } else {
+            tracing::info!(
+                "[slide_window] ALLOWING: no last_trigger_oldest_visible (first trigger)"
+            );
         }
 
-        // Update last continuation for this direction
-        match direction {
-            LoadDirection::Backward => self.last_backward_continuation.set(Some(continuation)),
-            LoadDirection::Forward => self.last_forward_continuation.set(Some(continuation)),
+        // Update last trigger oldest_visible for debouncing
+        if let Some(entity) = oldest_visible_entity {
+            tracing::info!(
+                "[slide_window] Setting last_trigger_oldest_visible = {:?}",
+                entity
+            );
+            self.last_trigger_oldest_visible.set(Some(entity));
         }
 
         // Increment update counter

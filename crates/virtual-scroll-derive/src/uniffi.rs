@@ -75,6 +75,7 @@ fn generate_impl(
             pub struct #intersection_name {
                 entity_id: String,
                 index: u32,
+                direction: String,
             }
 
             #[::uniffi::export]
@@ -87,6 +88,11 @@ fn generate_impl(
                 #[uniffi::method]
                 pub fn index(&self) -> u32 {
                     self.index
+                }
+
+                #[uniffi::method]
+                pub fn direction(&self) -> String {
+                    self.direction.clone()
                 }
             }
 
@@ -134,6 +140,7 @@ fn generate_impl(
                         ::std::sync::Arc::new(#intersection_name {
                             entity_id: i.entity_id.to_string(),
                             index: i.index as u32,
+                            direction: format!("{:?}", i.direction),
                         })
                     });
 
