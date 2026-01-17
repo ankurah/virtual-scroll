@@ -153,7 +153,7 @@ async fn test_non_aligned_scroll_positions() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         51, 40, 1020..=1059, Some(1045),
         true, true, false, 1041, 1045, 2050,
-        "TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 41",
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 41"),
     ).await?;
 
     assert_eq!(sm.mode(), ankurah_virtual_scroll::ScrollMode::Backward);

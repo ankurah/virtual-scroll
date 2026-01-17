@@ -82,7 +82,7 @@ async fn test_variable_heights() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         500, 40, 1020..=1059, Some(1044),
         true, true, false, 1040, 1044, 2000,
-        "TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 41",
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 41"),
     ).await?;
 
     assert_eq!(sm.mode(), ankurah_virtual_scroll::ScrollMode::Backward);

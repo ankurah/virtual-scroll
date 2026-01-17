@@ -276,16 +276,17 @@ impl<V: View + Clone + Send + Sync + 'static> MockRenderer<V> {
 
     /// Scroll up by `px` pixels and verify a window change is triggered.
     ///
-    /// Notifies ScrollManager of the scroll, waits up to 100ms for a render, then asserts:
+    /// Notifies ScrollManager of the scroll, waits up to 500ms for a render, then asserts:
     /// - Item count matches expected
     /// - Window contains expected timestamps
     /// - Intersection item matches expected timestamp
     /// - Pagination flags (has_more_preceding, has_more_following, should_auto_scroll) match
     /// - First/last visible timestamps match after scroll_offset adjustment
     /// - Final scroll_offset matches expected value
-    /// - Current selection (query) matches expected
+    /// - Current selection (query) matches expected (if provided)
     ///
-    /// Use this when scrolling past the trigger threshold (items_above < screen_items).
+    /// Use this when scrolling triggers a render (mode change or pagination).
+    /// Pass `expected_selection: None` for mode-change-only renders where selection doesn't change.
     #[allow(clippy::too_many_arguments)]
     pub async fn scroll_up_and_expect(
         &mut self,
@@ -299,7 +300,7 @@ impl<V: View + Clone + Send + Sync + 'static> MockRenderer<V> {
         first_visible_ts: i64,
         last_visible_ts: i64,
         expected_offset: i32,
-        expected_selection: &str,
+        expected_selection: Option<&str>,
     ) -> Result<VisibleSet<V>, MockRendererError> {
         self.scroll_offset = (self.scroll_offset - px).max(0);
         let (first_idx, last_idx) = self.visible_indices();
@@ -349,11 +350,13 @@ impl<V: View + Clone + Send + Sync + 'static> MockRenderer<V> {
             "scroll_offset mismatch"
         );
 
-        assert_eq!(
-            self.sm.current_selection(),
-            expected_selection,
-            "selection mismatch"
-        );
+        if let Some(sel) = expected_selection {
+            assert_eq!(
+                self.sm.current_selection(),
+                sel,
+                "selection mismatch"
+            );
+        }
 
         Ok(vs)
     }
@@ -446,9 +449,10 @@ impl<V: View + Clone + Send + Sync + 'static> MockRenderer<V> {
     /// - Pagination flags (has_more_preceding, has_more_following, should_auto_scroll) match
     /// - First/last visible timestamps match after scroll_offset adjustment
     /// - Final scroll_offset matches expected value
-    /// - Current selection (query) matches expected
+    /// - Current selection (query) matches expected (if provided)
     ///
-    /// Use this when scrolling past the trigger threshold (items_below < screen_items).
+    /// Use this when scrolling triggers a render (mode change or pagination).
+    /// Pass `expected_selection: None` for mode-change-only renders where selection doesn't change.
     #[allow(clippy::too_many_arguments)]
     pub async fn scroll_down_and_expect(
         &mut self,
@@ -462,7 +466,7 @@ impl<V: View + Clone + Send + Sync + 'static> MockRenderer<V> {
         first_visible_ts: i64,
         last_visible_ts: i64,
         expected_offset: i32,
-        expected_selection: &str,
+        expected_selection: Option<&str>,
     ) -> Result<VisibleSet<V>, MockRendererError> {
         self.scroll_offset = (self.scroll_offset + px).min(self.content_height - self.viewport_height);
         let (first_idx, last_idx) = self.visible_indices();
@@ -512,11 +516,13 @@ impl<V: View + Clone + Send + Sync + 'static> MockRenderer<V> {
             "scroll_offset mismatch"
         );
 
-        assert_eq!(
-            self.sm.current_selection(),
-            expected_selection,
-            "selection mismatch"
-        );
+        if let Some(sel) = expected_selection {
+            assert_eq!(
+                self.sm.current_selection(),
+                sel,
+                "selection mismatch"
+            );
+        }
 
         Ok(vs)
     }
