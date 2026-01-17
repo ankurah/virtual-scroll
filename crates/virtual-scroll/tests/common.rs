@@ -1,5 +1,6 @@
 //! Test utilities for ankurah-virtual-scroll integration tests
 #![allow(unused_imports)]
+#![allow(dead_code)]
 
 use std::sync::Arc;
 
