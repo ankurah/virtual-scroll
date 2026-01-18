@@ -146,6 +146,8 @@ pub struct ScrollManager<V: View + Clone + Send + Sync + 'static> {
     display_order: Vec<OrderByItem>,
     visible_set: Mut<VisibleSet<V>>,
     mode: Mut<ScrollMode>,
+    /// Whether start() has been called and initial state set
+    initialized: Mut<bool>,
     /// Pending slide operation (set before query, consumed in callback)
     pending: Mut<Option<PendingSlide>>,
     /// Oldest visible item when last trigger fired (for debouncing based on user scroll distance)
@@ -202,6 +204,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let pending: Mut<Option<PendingSlide>> = Mut::new(None);
         let last_trigger_oldest_visible: Mut<Option<EntityId>> = Mut::new(None);
         let mode: Mut<ScrollMode> = Mut::new(ScrollMode::Live);
+        let initialized: Mut<bool> = Mut::new(false);
         let debug_info: Mut<ScrollDebugInfo> = Mut::new(ScrollDebugInfo {
             trigger_threshold: screen_items,
             ..Default::default()
@@ -217,15 +220,17 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let visible_set_clone = visible_set.clone();
         let pending_clone = pending.clone();
         let mode_clone = mode.clone();
+        let initialized_clone = initialized.clone();
         let subscription = livequery.subscribe(move |changeset: ChangeSet<V>| {
             tracing::trace!("[subscription] CALLBACK FIRED");
 
-            let current = visible_set_clone.peek();
             // Skip if not yet initialized (start() will handle initial set)
-            if current.items.is_empty() && !changeset.resultset.peek().is_empty() {
+            if !initialized_clone.peek() {
                 tracing::debug!("[subscription] skipping - not yet initialized");
                 return;
             }
+
+            let current = visible_set_clone.peek();
             let mut items: Vec<V> = changeset.resultset.peek();
             tracing::trace!("[subscription] processing {} items, current has {}", items.len(), current.items.len());
 
@@ -346,6 +351,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             display_order,
             visible_set,
             mode,
+            initialized,
             pending,
             last_trigger_oldest_visible,
             debug_info,
@@ -389,6 +395,9 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             should_auto_scroll: true,
             error: None,
         });
+
+        // Mark as initialized - subscription callbacks will now process updates
+        self.initialized.set(true);
     }
 
     // Computed properties
