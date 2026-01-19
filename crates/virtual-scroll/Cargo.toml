@@ -15,17 +15,17 @@ wasm = []
 
 [dependencies]
 # Ankurah for LiveQuery and signals
-ankurah = { version = "^0.7.13", features = ["derive"] }
-ankql = "^0.7.13"
-ankurah-proto = "^0.7.13"
-ankurah-signals = "^0.7.13"
+ankurah = { version = "=0.7.15", features = ["derive"] }
+ankql = "=0.7.15"
+ankurah-proto = "=0.7.15"
+ankurah-signals = "=0.7.15"
 tracing = "0.1"
 
 # Re-export derive macro for convenience
-ankurah-virtual-scroll-derive = { path = "../virtual-scroll-derive", version = "=0.7.5" }
+ankurah-virtual-scroll-derive = { path = "../virtual-scroll-derive", version = "=0.7.6" }
 
 [dev-dependencies]
-ankurah-storage-sled = "^0.7.13"
+ankurah-storage-sled = "=0.7.15"
 wasm-bindgen = "0.2"  # Workaround for https://github.com/ankurah/ankurah/issues/211
 tokio = { version = "1", features = ["rt", "macros"] }
 anyhow = "1"

@@ -22,9 +22,9 @@ dependencies = [
 
 [[package]]
 name = "ankql"
-version = "0.7.13"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "129fa0deac5593e95d374aaacd9c58b6f0d30dcd8185f50a265879637b42cf33"
+checksum = "b645b8d1c3430ed1f23158edf404a83a0b9a2f354139af14aa245fa583275b99"
 dependencies = [
  "base64",
  "log",
@@ -32,7 +32,7 @@ dependencies = [
  "pest_derive",
  "serde",
  "serde_json",
- "thiserror",
+ "thiserror 2.0.17",
  "tracing",
  "ulid",
  "wasm-bindgen",
@@ -40,9 +40,9 @@ dependencies = [
 
 [[package]]
 name = "ankurah"
-version = "0.7.13"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcc71275a1144489ea18b7b6ffed8da9185f2cfa388ba76de0bb91ca23863b5a"
+checksum = "3ecb19aabfedca30bf28de301b3a4936ed030a8ed728ba3debffa3eb8a92fb9f"
 dependencies = [
  "ankql",
  "ankurah-core",
@@ -60,9 +60,9 @@ dependencies = [
 
 [[package]]
 name = "ankurah-core"
-version = "0.7.13"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "83dcc89c1cc0a91f392fd852e396f2b6e73b577f9278ceec6df3e3b462daf5e2"
+checksum = "0dc9cbd9349118911e540c945e66837489d987af8179d6ab24f7f764244248f7"
 dependencies = [
  "ankql",
  "ankurah-derive",
@@ -87,7 +87,7 @@ dependencies = [
  "serde-wasm-bindgen",
  "serde_json",
  "smallvec",
- "thiserror",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "ulid",
@@ -98,9 +98,9 @@ dependencies = [
 
 [[package]]
 name = "ankurah-derive"
-version = "0.7.13"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8978dc75489e629e9f9a8b91630239e7627de63c6a28ecefb3d9c95ef416b057"
+checksum = "e9180095d0c8d2a8ae174996f06053feba48dd350e951403cf881f50f320963f"
 dependencies = [
  "ankql",
  "proc-macro2",
@@ -114,9 +114,9 @@ dependencies = [
 
 [[package]]
 name = "ankurah-proto"
-version = "0.7.13"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a9c6a868ca1517ebd353cf48bd71cdde9e687b3b76f139ca391c8a0c71f1919"
+checksum = "802b7518f589394e91c48a8d77f297c1dcf3b49d92f8c3af7b15a086a92c1842"
 dependencies = [
  "ankql",
  "anyhow",
@@ -128,15 +128,16 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "sha2",
+ "thiserror 1.0.69",
  "ulid",
  "wasm-bindgen",
 ]
 
 [[package]]
 name = "ankurah-signals"
-version = "0.7.13"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1754b86b5f883d30476ee7d3ddf560374161b0337c1f54bc7f7bf7f2793832bc"
+checksum = "20dff5f00d1b6126b4914615bde35278a964dd32a53991c42c3c837cd1d30295"
 dependencies = [
  "js-sys",
  "reactive_graph",
@@ -149,13 +150,14 @@ dependencies = [
 
 [[package]]
 name = "ankurah-storage-common"
-version = "0.7.13"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b13b8ce6f40d9cdbe13e2b474d4aec31cdb49f1938fec985c95d1e39bc65e019"
+checksum = "a1589a15ff32abc97c266fb3773834a830513ca08360e0cf351173a164afee72"
 dependencies = [
  "ankql",
  "ankurah-core",
  "ankurah-proto",
+ "futures",
  "indexmap",
  "serde",
  "tracing",
@@ -163,9 +165,9 @@ dependencies = [
 
 [[package]]
 name = "ankurah-storage-indexeddb-wasm"
-version = "0.7.13"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "78ac89431bcb465dfe040967023049d5b759fe99495eee3fe4051726fc40e254"
+checksum = "1737a2404bea289f4d937dbae65089106a79fc0732f228693b99972cb0d96136"
 dependencies = [
  "ankql",
  "ankurah-core",
@@ -186,7 +188,7 @@ dependencies = [
  "serde-wasm-bindgen",
  "serde_json",
  "strum",
- "thiserror",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "tracing-wasm",
@@ -199,9 +201,9 @@ dependencies = [
 
 [[package]]
 name = "ankurah-storage-sled"
-version = "0.7.13"
+version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e29050cc7ad5acd9c2fcc24a8afeaadeb54d674950ecd6c15e9993b1e1004c78"
+checksum = "548d83f6f69df7f832d6d1d78caffe61cc589a42978b68b18b8772bcf0ce3d2f"
 dependencies = [
  "ankql",
  "ankurah-core",
@@ -213,9 +215,10 @@ dependencies = [
  "blake3",
  "chrono",
  "dirs",
+ "futures",
  "serde",
  "sled",
- "thiserror",
+ "thiserror 2.0.17",
  "tokio",
  "tracing",
  "ulid",
@@ -223,7 +226,7 @@ dependencies = [
 
 [[package]]
 name = "ankurah-virtual-scroll"
-version = "0.7.5"
+version = "0.7.6"
 dependencies = [
  "ankql",
  "ankurah",
@@ -242,7 +245,7 @@ dependencies = [
 
 [[package]]
 name = "ankurah-virtual-scroll-derive"
-version = "0.7.5"
+version = "0.7.6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -256,7 +259,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1384d3fe1eecb464229fcf6eebb72306591c56bf27b373561489458a7c73027d"
 dependencies = [
  "futures",
- "thiserror",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -1220,7 +1223,7 @@ dependencies = [
  "rustc_version",
  "send_wrapper 0.6.0",
  "slotmap",
- "thiserror",
+ "thiserror 2.0.17",
  "web-sys",
 ]
 
@@ -1250,7 +1253,7 @@ checksum = "a4e608c6638b9c18977b00b475ac1f28d14e84b27d8d42f70e0bf1e3dec127ac"
 dependencies = [
  "getrandom 0.2.17",
  "libredox",
- "thiserror",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
@@ -1515,11 +1518,31 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
+dependencies = [
+ "thiserror-impl 1.0.69",
+]
+
+[[package]]
+name = "thiserror"
 version = "2.0.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 2.0.17",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.69"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -1685,7 +1708,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "virtual-scroll-playwright-bindings"
-version = "0.7.5"
+version = "0.7.6"
 dependencies = [
  "ankql",
  "ankurah",
@@ -1922,7 +1945,7 @@ dependencies = [
  "serde_json",
  "smallstr",
  "smallvec",
- "thiserror",
+ "thiserror 2.0.17",
 ]
 
 [[package]]
