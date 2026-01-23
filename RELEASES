@@ -1,3 +1,4 @@
+0.7.7  Relax ankurah/ankql dependency constraints and bump compatible versions
 0.7.6  Bump ankurah dependencies to 0.7.15
 0.7.5  Fix subscription skipping first message in empty rooms (use explicit initialized flag instead of checking items.is_empty())
 0.7.4  Update tests for mode-change renders; reduce log verbosity (info! -> debug!/trace!)

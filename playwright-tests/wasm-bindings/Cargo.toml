@@ -12,10 +12,10 @@ wasm = []
 
 [dependencies]
 # Ankurah for model and query
-ankurah = { version = "=0.7.15", features = ["derive", "wasm"] }
-ankurah-signals = { version = "=0.7.15", features = ["wasm", "react", "jsvalue"] }
-ankurah-storage-indexeddb-wasm = { version = "=0.7.15" }
-ankql = "=0.7.15"
+ankurah = { version = "^0.7.17", features = ["derive", "wasm"] }
+ankurah-signals = { version = "^0.7.17", features = ["wasm", "react", "jsvalue"] }
+ankurah-storage-indexeddb-wasm = { version = "^0.7.17" }
+ankql = "^0.7.17"
 
 # Virtual scroll
 ankurah-virtual-scroll = { path = "../../crates/virtual-scroll", features = ["wasm"] }

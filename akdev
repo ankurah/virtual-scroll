@@ -42,6 +42,10 @@ show_usage() {
 
 do_bump() {
     local version="$1"
+    local workspace_version=""
+    if [ -f "./Cargo.toml" ]; then
+        workspace_version=$(grep -m 1 '^version = "' ./Cargo.toml | sed -E 's/version = "([^"]+)"/\1/')
+    fi
     echo "Updating ankurah/ankql dependencies to version $version"
 
     # Find all Cargo.toml files in the workspace (excluding target/node_modules)
@@ -53,13 +57,19 @@ do_bump() {
 
         # Check if this manifest has ankurah or ankql dependencies
         if grep -qE "^ankurah|^ankql" "$manifest" 2>/dev/null; then
-            # Update inline version: ankurah* = "x.y.z" -> ankurah* = "=new_version"
-            sed -i '' -E "s/(ankurah[a-z0-9_-]*[[:space:]]*=[[:space:]]*\")[^\"]+\"/\1=$version\"/g" "$manifest"
-            sed -i '' -E "s/(ankql[[:space:]]*=[[:space:]]*\")[^\"]+\"/\1=$version\"/g" "$manifest"
+            # Update inline version: ankurah* = "x.y.z" -> ankurah* = "^new_version"
+            sed -i '' -E "s/(ankurah[a-z0-9_-]*[[:space:]]*=[[:space:]]*\")[^\"]+\"/\1^$version\"/g" "$manifest"
+            sed -i '' -E "s/(ankql[[:space:]]*=[[:space:]]*\")[^\"]+\"/\1^$version\"/g" "$manifest"
 
-            # Update table version: ankurah* = { version = "x.y.z" } -> ankurah* = { version = "=new_version" }
-            sed -i '' -E "s/(ankurah[a-z0-9_-]*[[:space:]]*=[[:space:]]*\{[^}]*version[[:space:]]*=[[:space:]]*\")[^\"]+\"/\1=$version\"/g" "$manifest"
-            sed -i '' -E "s/(ankql[[:space:]]*=[[:space:]]*\{[^}]*version[[:space:]]*=[[:space:]]*\")[^\"]+\"/\1=$version\"/g" "$manifest"
+            # Update table version: ankurah* = { version = "x.y.z" } -> ankurah* = { version = "^new_version" }
+            sed -i '' -E "s/(ankurah[a-z0-9_-]*[[:space:]]*=[[:space:]]*\{[^}]*version[[:space:]]*=[[:space:]]*\")[^\"]+\"/\1^$version\"/g" "$manifest"
+            sed -i '' -E "s/(ankql[[:space:]]*=[[:space:]]*\{[^}]*version[[:space:]]*=[[:space:]]*\")[^\"]+\"/\1^$version\"/g" "$manifest"
+
+            # Keep virtual-scroll derive tied to workspace version, not ankurah version.
+            if [ -n "$workspace_version" ]; then
+                sed -i '' -E "s/(ankurah-virtual-scroll-derive[[:space:]]*=[[:space:]]*\\{[^}]*version[[:space:]]*=[[:space:]]*\")[^\"]+\"/\\1=$workspace_version\"/g" "$manifest"
+                sed -i '' -E "s/(ankurah-virtual-scroll-derive[[:space:]]*=[[:space:]]*\")[^\"]+\"/\\1=$workspace_version\"/g" "$manifest"
+            fi
 
             echo "  Updated: $manifest"
         fi
