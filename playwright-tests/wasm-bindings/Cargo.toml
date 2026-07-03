@@ -1,6 +1,6 @@
 [package]
 name = "virtual-scroll-playwright-bindings"
-version = "0.7.6"
+version = "0.8.0"
 edition = "2021"
 
 [lib]
@@ -12,10 +12,10 @@ wasm = []
 
 [dependencies]
 # Ankurah for model and query
-ankurah = { version = "^0.7.17", features = ["derive", "wasm"] }
-ankurah-signals = { version = "^0.7.17", features = ["wasm", "react", "jsvalue"] }
-ankurah-storage-indexeddb-wasm = { version = "^0.7.17" }
-ankql = "^0.7.17"
+ankurah = { version = "^0.8.1", features = ["derive", "wasm"] }
+ankurah-signals = { version = "^0.8.1", features = ["wasm", "react", "jsvalue"] }
+ankurah-storage-indexeddb-wasm = { version = "^0.8.1" }
+ankql = "^0.8.1"
 
 # Virtual scroll
 ankurah-virtual-scroll = { path = "../../crates/virtual-scroll", features = ["wasm"] }
