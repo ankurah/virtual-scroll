@@ -335,8 +335,8 @@ fn generate_impl(
 
                 /// Initialize the scroll manager and populate initial items
                 #[uniffi::method]
-                pub async fn start(self: Arc<Self>) {
-                    self.0.start().await;
+                pub async fn start(self: Arc<Self>) -> Result<(), ::ankurah::error::RetrievalError> {
+                    self.0.start().await
                 }
 
                 /// Process a scroll event

@@ -187,8 +187,8 @@ fn generate_impl(
                 /// Must be called after construction.
                 #[wasm_bindgen]
                 pub async fn start(&self) -> Result<(), JsValue> {
-                    self.inner.start().await;
-                    Ok(())
+                    self.inner.start().await
+                        .map_err(|e| JsValue::from_str(&format!("Failed to start ScrollManager: {:?}", e)))
                 }
 
                 /// Get the visible set signal

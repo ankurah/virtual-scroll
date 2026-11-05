@@ -60,7 +60,7 @@ async fn test_scroll_live_to_oldest_and_back() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: Live mode, 30 items (1030-1059), auto-scrolled to bottom
@@ -84,7 +84,7 @@ async fn test_scroll_live_to_oldest_and_back() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
 
     // Continue scrolling backward toward oldest edge
@@ -98,7 +98,7 @@ async fn test_scroll_live_to_oldest_and_back() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         500, 50, 1000..=1049, Some(1029),
         false, true, false, 1020, 1029, 1000,
-        Some("TRUE AND \"timestamp\" <= 1049 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1049 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
 
     // Scroll to top (50 items 1000-1049, starting at offset 1000)
@@ -124,7 +124,7 @@ async fn test_scroll_live_to_oldest_and_back() -> Result<(), anyhow::Error> {
     r.scroll_down_and_expect(
         500, 50, 1010..=1059, Some(1030),
         true, false, true, 1050, 1059, 2000,
-        Some("TRUE AND \"timestamp\" >= 1010 ORDER BY timestamp ASC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" >= 1010 ORDER BY \"timestamp\" ASC LIMIT 51"),
     ).await?;
 
     assert_eq!(sm.mode(), ankurah_virtual_scroll::ScrollMode::Live);
@@ -151,7 +151,7 @@ async fn test_scroll_to_absolute_oldest() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: 30 items (1030-1059)
@@ -172,7 +172,7 @@ async fn test_scroll_to_absolute_oldest() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
 
     // Continue backward until we hit the oldest edge
@@ -185,7 +185,7 @@ async fn test_scroll_to_absolute_oldest() -> Result<(), anyhow::Error> {
     let vs = r.scroll_up_and_expect(
         500, 50, 1000..=1049, Some(1029),
         false, true, false, 1020, 1029, 1000,
-        Some("TRUE AND \"timestamp\" <= 1049 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1049 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
 
     // CRITICAL: has_more_preceding must be false
@@ -213,7 +213,7 @@ async fn test_small_dataset_no_pagination() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: All 15 items (1000-1014)
@@ -258,7 +258,7 @@ async fn test_one_more_than_live_window() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: 30 items (1001-1030)
@@ -282,7 +282,7 @@ async fn test_one_more_than_live_window() -> Result<(), anyhow::Error> {
     let vs = r.scroll_up_and_expect(
         100, 31, 1000..=1030, Some(1020),
         false, true, false, 1011, 1020, 550,
-        Some("TRUE AND \"timestamp\" <= 1030 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1030 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
 
     // Now has_more_preceding should be false - we have all 31 items
@@ -309,7 +309,7 @@ async fn test_debounce_rapid_scrolls() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     let vs = r.next_render().await?;
@@ -329,7 +329,7 @@ async fn test_debounce_rapid_scrolls() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
 
     // Small scrolls within buffer - should NOT trigger new pagination
@@ -365,7 +365,7 @@ async fn test_variable_item_heights() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     let vs = r.next_render().await?;
@@ -398,7 +398,7 @@ async fn test_empty_dataset() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     let vs = r.next_render().await?;
@@ -429,7 +429,7 @@ async fn test_single_item() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     let vs = r.next_render().await?;
@@ -459,7 +459,7 @@ async fn test_ascending_order() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     let vs = r.next_render().await?;
@@ -493,7 +493,7 @@ async fn test_large_viewport() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 1000);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // With live_window=60 and 60 items, we get all items
@@ -522,7 +522,7 @@ async fn test_two_items() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     let vs = r.next_render().await?;
@@ -555,7 +555,7 @@ async fn test_initial_auto_scroll() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     let vs = r.next_render().await?;
@@ -591,7 +591,7 @@ async fn test_mode_transitions() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: Live mode
@@ -612,7 +612,7 @@ async fn test_mode_transitions() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
     assert_eq!(sm.mode(), ankurah_virtual_scroll::ScrollMode::Backward);
 
@@ -641,7 +641,7 @@ async fn test_exactly_live_window_items() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Should get all 30 items
@@ -660,7 +660,7 @@ async fn test_exactly_live_window_items() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         500, 30, 1000..=1029, None,
         true, false, false, 1010, 1019, 500,
-        Some("TRUE AND \"timestamp\" <= 1029 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1029 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
 
     // Continue scrolling to top - no additional renders (already in Backward mode)
@@ -688,7 +688,7 @@ async fn test_at_newest_edge() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: 30 newest items (1030-1059)
@@ -723,7 +723,7 @@ async fn test_debounce_escape() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     let _ = r.next_render().await?;
@@ -738,7 +738,7 @@ async fn test_debounce_escape() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
 
     // Small scrolls that stay within debounce threshold
@@ -754,7 +754,7 @@ async fn test_debounce_escape() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         850, 50, 1000..=1049, Some(1029),
         false, true, false, 1020, 1029, 1000,
-        Some("TRUE AND \"timestamp\" <= 1049 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1049 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
 
     Ok(())
@@ -779,7 +779,7 @@ async fn test_immediate_pagination_trigger() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     let _ = r.next_render().await?;
@@ -818,7 +818,7 @@ async fn test_exactly_full_window_items() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: 30 items (1020-1049)
@@ -840,7 +840,7 @@ async fn test_exactly_full_window_items() -> Result<(), anyhow::Error> {
     let vs = r.scroll_up_and_expect(
         100, 50, 1000..=1049, Some(1039),
         false, true, false, 1030, 1039, 1500,
-        Some("TRUE AND \"timestamp\" <= 1049 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1049 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
 
     // Now we have all 50 items

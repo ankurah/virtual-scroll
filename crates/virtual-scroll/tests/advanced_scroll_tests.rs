@@ -38,7 +38,7 @@ async fn test_rapid_alternating_scrolls() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: 30 items, offset=1000, Live mode
@@ -94,7 +94,7 @@ async fn test_rapid_pagination_triggers() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial state
@@ -111,7 +111,7 @@ async fn test_rapid_pagination_triggers() -> Result<(), anyhow::Error> {
     let vs = r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
     assert!(!vs.should_auto_scroll, "should_auto_scroll should be false after exiting Live mode");
 
@@ -156,7 +156,7 @@ async fn test_intersection_anchoring_backward() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     let vs = r.next_render().await?;
@@ -177,7 +177,7 @@ async fn test_intersection_anchoring_backward() -> Result<(), anyhow::Error> {
     let vs = r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
 
     // Verify intersection exists in new window
@@ -213,7 +213,7 @@ async fn test_intersection_anchoring_forward() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial render: 30 items, Live mode
@@ -278,7 +278,7 @@ async fn test_selection_predicates() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: Live mode selection
@@ -287,7 +287,7 @@ async fn test_selection_predicates() -> Result<(), anyhow::Error> {
 
     // Live mode: ORDER BY DESC LIMIT live_window
     let selection = sm.current_selection();
-    assert!(selection.contains("ORDER BY timestamp DESC"),
+    assert!(selection.contains("ORDER BY \"timestamp\" DESC"),
         "Live mode should order DESC: {}", selection);
     assert!(selection.contains("LIMIT 30"),
         "Live mode should limit to live_window: {}", selection);
@@ -302,17 +302,57 @@ async fn test_selection_predicates() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
 
     // Backward: timestamp <= cursor ORDER BY DESC
     let selection = sm.current_selection();
     assert!(selection.contains("\"timestamp\" <= 1059"),
         "Backward should have cursor constraint: {}", selection);
-    assert!(selection.contains("ORDER BY timestamp DESC"),
+    assert!(selection.contains("ORDER BY \"timestamp\" DESC"),
         "Backward should order DESC: {}", selection);
     assert!(selection.contains("LIMIT 51"),
         "Backward limit should be full_window+1: {}", selection);
+
+    Ok(())
+}
+
+/// Test that a list ordered by entity id gets an id cursor when it paginates backward:
+/// the cursor reads the `id` field as the entity id.
+#[tokio::test]
+async fn test_selection_predicate_ordered_by_id() -> Result<(), anyhow::Error> {
+    let ctx = durable_sled_setup().await?;
+    create_messages(&ctx, (0..60).map(|i| (1000 + i, 50))).await?;
+
+    let sm = Arc::new(ScrollManager::<TestMessageView>::new(
+        &ctx,
+        "true",
+        "id DESC",
+        50,
+        2.0,
+        500,
+    )?);
+
+    let mut r = MockRenderer::new(sm.clone(), 500);
+    tokio::spawn({
+        let sm = sm.clone();
+        async move { sm.start().await.expect("ScrollManager::start failed") }
+    });
+
+    let vs = r.next_render().await?;
+    assert_eq!(vs.items.len(), 30);
+
+    // Same scroll as test_selection_predicates: exit Live mode, then trigger backward pagination.
+    // Only the cursor is checked: at Ankurah f8e85d2e a live query's result set does not order
+    // its rows by id, so the window's contents follow no order.
+    let _ = r.scroll_up_collect(400).await;
+    let _ = r.scroll_up_collect(100).await;
+
+    let selection = sm.current_selection();
+    assert!(selection.starts_with("TRUE AND \"id\" <= '"),
+        "Backward should have an id cursor constraint: {}", selection);
+    assert!(selection.ends_with(" ORDER BY \"id\" DESC LIMIT 51"),
+        "Backward should order by id: {}", selection);
 
     Ok(())
 }
@@ -336,7 +376,7 @@ async fn test_selection_predicate_forward() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     let vs = r.next_render().await?;
@@ -354,7 +394,7 @@ async fn test_selection_predicate_forward() -> Result<(), anyhow::Error> {
 
     // Should have paginated backward to reach oldest items
     let selection = sm.current_selection();
-    assert!(selection.contains("ORDER BY timestamp DESC"),
+    assert!(selection.contains("ORDER BY \"timestamp\" DESC"),
         "Backward should order DESC: {}", selection);
 
     // Now scroll toward newest to trigger forward pagination
@@ -371,7 +411,7 @@ async fn test_selection_predicate_forward() -> Result<(), anyhow::Error> {
     // Either we're in Forward mode with ASC ordering, or still paginating backward
     let mode = sm.mode();
     if mode == ankurah_virtual_scroll::ScrollMode::Forward {
-        assert!(final_selection.contains("ORDER BY timestamp ASC"),
+        assert!(final_selection.contains("ORDER BY \"timestamp\" ASC"),
             "Forward should order ASC: {}", final_selection);
     }
 
@@ -400,7 +440,7 @@ async fn test_live_mode_initial() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial render should be in Live mode with auto-scroll
@@ -433,7 +473,7 @@ async fn test_live_mode_exit_on_scroll_up() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     let vs = r.next_render().await?;
@@ -450,7 +490,7 @@ async fn test_live_mode_exit_on_scroll_up() -> Result<(), anyhow::Error> {
     r.scroll_up_and_expect(
         100, 50, 1010..=1059, Some(1049),
         true, true, false, 1040, 1049, 1500,
-        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 51"),
+        Some("TRUE AND \"timestamp\" <= 1059 ORDER BY \"timestamp\" DESC LIMIT 51"),
     ).await?;
 
     // Should now be in Backward mode
@@ -477,7 +517,7 @@ async fn test_live_mode_reentry() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: Live mode
@@ -537,7 +577,7 @@ async fn test_concurrent_scroll_events() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     let vs = r.next_render().await?;
@@ -600,7 +640,7 @@ async fn test_sequential_paginations() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: 30 items from 100
@@ -633,7 +673,7 @@ async fn test_sequential_paginations() -> Result<(), anyhow::Error> {
 
     // The selection should reflect backward pagination with cursor constraint
     let selection = sm.current_selection();
-    assert!(selection.contains("ORDER BY timestamp DESC"),
+    assert!(selection.contains("ORDER BY \"timestamp\" DESC"),
         "Backward mode should order DESC: {}", selection);
     assert!(selection.contains("LIMIT"),
         "Should have a LIMIT clause: {}", selection);

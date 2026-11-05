@@ -3,17 +3,20 @@
 pub mod windowing;
 
 use ankql::ast::{
-    ComparisonOperator, Expr, Literal, OrderByItem, OrderDirection, PathExpr, Predicate, Selection,
+    ComparisonOperator, Expr, OrderByItem, OrderDirection, Parsed, PathExpr, Predicate, Selection,
 };
 use ankurah::changes::ChangeSet;
-use ankurah::core::selection::filter::Filterable;
 use ankurah::core::value::Value;
-use ankurah::{model::View, Context, LiveQuery};
+use ankurah::{
+    model::{Model, View},
+    Context, LiveQuery,
+};
 use ankurah_proto::EntityId;
 use ankurah_signals::{Mut, Peek, Read, Subscribe};
 
-// Re-export key types
-pub use ankql::ast::{OrderByItem as OrderBy, Predicate as Filter};
+// Re-export key types, in the parsed form the scroll manager takes
+pub type OrderBy = OrderByItem<Parsed>;
+pub type Filter = Predicate<Parsed>;
 pub use ankurah_proto::EntityId as Id;
 pub use ankurah_signals;
 
@@ -121,18 +124,16 @@ pub struct ScrollDebugInfo {
 // Helper Functions
 // ============================================================================
 
-/// Convert an Ankurah Value to an AnkQL Literal for predicate construction
-fn value_to_literal(value: &Value) -> Literal {
-    match value {
-        Value::I16(v) => Literal::I16(*v),
-        Value::I32(v) => Literal::I32(*v),
-        Value::I64(v) => Literal::I64(*v),
-        Value::F64(v) => Literal::F64(*v),
-        Value::Bool(v) => Literal::Bool(*v),
-        Value::String(v) => Literal::String(v.clone()),
-        // For other types, convert to string representation
-        _ => Literal::String(format!("{:?}", value)),
+/// Read a view's field by name, or its entity id for `id`. Entities store properties under
+/// durable identities, so a name resolves through the model's binding in the entity's system;
+/// a view from this manager's query is always bound, so only an absent value reads as `None`.
+fn field_value<V: View>(view: &V, field_name: &str) -> Option<Value> {
+    if field_name == "id" {
+        return Some(Value::EntityId(view.entity().id()));
     }
+    let property = V::Model::descriptor().field_by_name(field_name)?;
+    let property_id = property.resolved_id(view.entity().system_epoch()).ok()?;
+    view.entity().property_value(&property_id).ok().flatten()
 }
 
 // ============================================================================
@@ -142,8 +143,10 @@ fn value_to_literal(value: &Value) -> Literal {
 /// Virtual scroll manager with Ankurah LiveQuery integration
 pub struct ScrollManager<V: View + Clone + Send + Sync + 'static> {
     livequery: LiveQuery<V>,
-    predicate: Predicate,
-    display_order: Vec<OrderByItem>,
+    predicate: Predicate<Parsed>,
+    display_order: Vec<OrderByItem<Parsed>>,
+    /// The selection most recently given to the livequery, as the scroll manager wrote it
+    selection: Mut<Selection<Parsed>>,
     visible_set: Mut<VisibleSet<V>>,
     mode: Mut<ScrollMode>,
     /// Whether start() has been called and initial state set
@@ -174,7 +177,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
     /// * `viewport_height` - Viewport height in pixels
     pub fn new(
         ctx: &Context,
-        predicate: impl TryInto<Predicate, Error = impl std::fmt::Debug>,
+        predicate: impl TryInto<Predicate<Parsed>, Error = impl std::fmt::Debug>,
         display_order: impl IntoOrderBy,
         minimum_row_height: u32,
         buffer_factor: f64,
@@ -197,7 +200,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             order_by: Some(display_order.clone()),
             limit: Some(limit as u64),
         };
-        let livequery: LiveQuery<V> = ctx.query(selection)?;
+        let livequery: LiveQuery<V> = ctx.query(selection.clone())?;
 
         // Create signals
         let visible_set: Mut<VisibleSet<V>> = Mut::new(VisibleSet::default());
@@ -294,7 +297,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
                 );
                 let (intersection, error) = match items.iter().position(|item| item.entity().id() == slide.anchor) {
                     Some(index) => {
-                        let anchor_ts = items.get(index).and_then(|i| i.entity().value("timestamp"));
+                        let anchor_ts = items.get(index).and_then(|i| field_value(i, "timestamp"));
                         tracing::trace!(
                             "[subscription] INTERSECTION: anchor {:?} (ts={:?}) found at index {}",
                             slide.anchor, anchor_ts, index
@@ -349,6 +352,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             livequery,
             predicate,
             display_order,
+            selection: Mut::new(selection),
             visible_set,
             mode,
             initialized,
@@ -365,8 +369,10 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
 
     /// Initialize the scroll manager (waits for initial query results)
     /// generally this should be backgrounded and not awaited on.
-    pub async fn start(&self) {
-        self.livequery.wait_initialized().await;
+    ///
+    /// Fails if the initial query fails, for example when its model cannot be registered.
+    pub async fn start(&self) -> Result<(), ankurah::error::RetrievalError> {
+        self.livequery.wait_initialized().await?;
 
         let mut items: Vec<V> = self.livequery.peek();
 
@@ -398,6 +404,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
 
         // Mark as initialized - subscription callbacks will now process updates
         self.initialized.set(true);
+        Ok(())
     }
 
     // Computed properties
@@ -424,8 +431,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
 
     /// Get the current selection (predicate + order by) as a string.
     pub fn current_selection(&self) -> String {
-        let (selection, _version) = self.livequery.selection().peek();
-        format!("{}", selection)
+        self.selection.peek().to_string()
     }
 
     /// Get debug info about scroll position and buffer state
@@ -675,16 +681,17 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         };
 
         // Debug: log first and last item timestamps to verify array ordering
-        let first_ts = current.items.first().and_then(|i| i.entity().value("timestamp"));
-        let last_ts = current.items.last().and_then(|i| i.entity().value("timestamp"));
+        let first_ts = current.items.first().and_then(|i| field_value(i, "timestamp"));
+        let last_ts = current.items.last().and_then(|i| field_value(i, "timestamp"));
         tracing::trace!(
             "[slide_window] cursor_index={}, oldest_vis={}, newest_vis={}, max={}, limit={}, first_ts={:?}, last_ts={:?}",
             cursor_index, oldest_visible_index, newest_visible_index, max_index, limit, first_ts, last_ts
         );
         tracing::debug!("[slide_window] update_selection: {}", selection);
 
-        if let Err(e) = self.livequery.update_selection(selection) {
-            tracing::error!("[slide_window] FAILED to update selection: {}", e);
+        match self.livequery.update_selection(selection.clone()) {
+            Ok(()) => self.selection.set(selection),
+            Err(e) => tracing::error!("[slide_window] FAILED to update selection: {}", e),
         }
     }
 
@@ -694,7 +701,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         current: &VisibleSet<V>,
         cursor_index: usize,
         operator: ComparisonOperator,
-    ) -> Predicate {
+    ) -> Predicate<Parsed> {
         let Some(cursor_item) = current.items.get(cursor_index) else {
             return self.predicate.clone();
         };
@@ -702,7 +709,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
             return self.predicate.clone();
         };
         let field_name = order_item.path.first();
-        let Some(cursor_value) = cursor_item.entity().value(field_name) else {
+        let Some(cursor_value) = field_value(cursor_item, field_name) else {
             return self.predicate.clone();
         };
 
@@ -718,7 +725,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
         let cursor_predicate = Predicate::Comparison {
             left: Box::new(Expr::Path(PathExpr::simple(field_name))),
             operator,
-            right: Box::new(Expr::Literal(value_to_literal(&cursor_value))),
+            right: Box::new(Expr::Literal(cursor_value)),
         };
 
         Predicate::And(
@@ -732,7 +739,7 @@ impl<V: View + Clone + Send + Sync + 'static> ScrollManager<V> {
 // Parsing Helpers
 // ============================================================================
 
-pub fn parse_order_by(s: &str) -> Result<Vec<OrderByItem>, String> {
+pub fn parse_order_by(s: &str) -> Result<Vec<OrderByItem<Parsed>>, String> {
     use ankql::parser::parse_selection;
     let selection_str = format!("true ORDER BY {}", s);
     let selection =
@@ -743,17 +750,17 @@ pub fn parse_order_by(s: &str) -> Result<Vec<OrderByItem>, String> {
 }
 
 pub trait IntoOrderBy {
-    fn into_order_by(self) -> Result<Vec<OrderByItem>, String>;
+    fn into_order_by(self) -> Result<Vec<OrderByItem<Parsed>>, String>;
 }
 
 impl IntoOrderBy for &str {
-    fn into_order_by(self) -> Result<Vec<OrderByItem>, String> {
+    fn into_order_by(self) -> Result<Vec<OrderByItem<Parsed>>, String> {
         parse_order_by(self)
     }
 }
 
-impl IntoOrderBy for Vec<OrderByItem> {
-    fn into_order_by(self) -> Result<Vec<OrderByItem>, String> {
+impl IntoOrderBy for Vec<OrderByItem<Parsed>> {
+    fn into_order_by(self) -> Result<Vec<OrderByItem<Parsed>>, String> {
         Ok(self)
     }
 }

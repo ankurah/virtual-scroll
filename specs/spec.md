@@ -188,14 +188,14 @@ Must implement anchor-based scroll adjustment manually:
 impl ScrollManager<V> {
     pub fn new(
         ctx: &Context,
-        predicate: impl TryInto<Predicate>,
+        predicate: impl TryInto<Predicate<Parsed>>,
         display_order: impl IntoOrderBy,
         minimum_row_height: u32,
         buffer_factor: f64,
         viewport_height: u32,
     ) -> Result<Self, RetrievalError>;
 
-    pub async fn start(&self);
+    pub async fn start(&self) -> Result<(), RetrievalError>;
 
     pub fn visible_set(&self) -> Read<VisibleSet<V>>;
     pub fn mode(&self) -> ScrollMode;

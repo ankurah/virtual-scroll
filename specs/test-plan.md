@@ -230,7 +230,7 @@ let ctx = durable_sled_setup().await?;
 create_messages(&ctx, (0..60).map(|i| (1000 + i, 50))).await?;
 let sm = Arc::new(ScrollManager::new(&ctx, "true", "timestamp DESC", 50, 2.0, 500)?);
 let mut r = MockRenderer::new(sm.clone(), 500);
-tokio::spawn(async move { sm.start().await });
+tokio::spawn(async move { sm.start().await.expect("ScrollManager::start failed") });
 
 // Initial state
 let vs = r.next_render().await?;
@@ -241,7 +241,7 @@ r.up_no_render(400, 1042, 1051).await;
 r.scroll_up_and_expect(
     100, 40, 1020..=1059, Some(1049),
     true, true, false, 1040, 1049, 1000,
-    "TRUE AND \"timestamp\" <= 1059 ORDER BY timestamp DESC LIMIT 41",
+    "TRUE AND \"timestamp\" <= 1059 ORDER BY \"timestamp\" DESC LIMIT 41",
 ).await?;
 ```
 

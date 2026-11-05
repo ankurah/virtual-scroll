@@ -32,7 +32,7 @@ async fn test_non_aligned_scroll_positions() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: Live mode, 30 items (ts 1030-1059)
@@ -65,7 +65,7 @@ async fn test_non_aligned_scroll_positions() -> Result<(), anyhow::Error> {
 
     // Verify selection reflects backward pagination
     let selection = sm.current_selection();
-    assert!(selection.contains("ORDER BY timestamp DESC"),
+    assert!(selection.contains("ORDER BY \"timestamp\" DESC"),
         "Backward mode should order DESC: {}", selection);
 
     // More items should have been loaded (pagination happened)
@@ -96,7 +96,7 @@ async fn test_partial_visibility_at_edges() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: 30 items (ts 1030-1059), each 100px = 3000px total

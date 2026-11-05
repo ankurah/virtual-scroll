@@ -28,27 +28,22 @@ dependencies = [
 
 [[package]]
 name = "ankql"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28b87ef060933fa1e0f9b1743ce44476f19e814d914531bf8054679cdeaa586e"
+version = "0.10.0"
+source = "git+https://github.com/ankurah/ankurah?rev=f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0#f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0"
 dependencies = [
- "base64",
- "log",
+ "ankurah-core-types",
  "pest",
  "pest_derive",
  "serde",
- "serde_json",
+ "strum 0.27.2",
  "thiserror 2.0.17",
- "tracing",
- "ulid",
  "wasm-bindgen",
 ]
 
 [[package]]
 name = "ankurah"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a04b9190681d76dd66da250a97eee1ea0567e413592ff637219e7a64bbe74475"
+version = "0.10.0"
+source = "git+https://github.com/ankurah/ankurah?rev=f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0#f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0"
 dependencies = [
  "ankql",
  "ankurah-core",
@@ -66,11 +61,11 @@ dependencies = [
 
 [[package]]
 name = "ankurah-core"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d62424f211f43ddcc32cb0a4ab87ce5b4134faadec551676339142ec54804e4"
+version = "0.10.0"
+source = "git+https://github.com/ankurah/ankurah?rev=f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0#f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0"
 dependencies = [
  "ankql",
+ "ankurah-core-types",
  "ankurah-derive",
  "ankurah-proto",
  "ankurah-signals",
@@ -104,12 +99,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "ankurah-core-types"
+version = "0.10.0"
+source = "git+https://github.com/ankurah/ankurah?rev=f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0#f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0"
+dependencies = [
+ "anyhow",
+ "base64",
+ "getrandom 0.3.4",
+ "js-sys",
+ "rand 0.9.2",
+ "serde",
+ "serde-wasm-bindgen",
+ "serde_json",
+ "strum 0.27.2",
+ "thiserror 1.0.69",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "ankurah-derive"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ae50730db74ff36b0f12445f0180d624c798dd2f6975cc68b26e4d5359cf428e"
+version = "0.10.0"
+source = "git+https://github.com/ankurah/ankurah?rev=f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0#f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0"
 dependencies = [
  "ankql",
+ "ankurah-core-types",
  "proc-macro2",
  "quote",
  "regex",
@@ -117,34 +130,38 @@ dependencies = [
  "serde",
  "serde_derive_internals",
  "syn",
+ "ulid",
 ]
 
 [[package]]
 name = "ankurah-proto"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e20993c24a32f92bf7c070a4739017ee6548ae106fc3090558f95d511209059"
+version = "0.10.0"
+source = "git+https://github.com/ankurah/ankurah?rev=f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0#f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0"
 dependencies = [
  "ankql",
+ "ankurah-core-types",
  "anyhow",
  "base64",
  "bincode",
  "bytes",
  "chrono",
+ "getrandom 0.3.4",
  "js-sys",
+ "rand 0.9.2",
  "serde",
  "serde-wasm-bindgen",
  "sha2",
+ "strum 0.27.2",
  "thiserror 1.0.69",
  "ulid",
  "wasm-bindgen",
+ "web-time",
 ]
 
 [[package]]
 name = "ankurah-signals"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "db01915a094f86bac79159c2fd6bfa07e98f0e549c43fee8c8150addcdacd4ee"
+version = "0.10.0"
+source = "git+https://github.com/ankurah/ankurah?rev=f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0#f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0"
 dependencies = [
  "js-sys",
  "reactive_graph",
@@ -157,27 +174,28 @@ dependencies = [
 
 [[package]]
 name = "ankurah-storage-common"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5c0c2ac60a334e894d5230180eed6b9b4954055105e681302c249276ab084d28"
+version = "0.10.0"
+source = "git+https://github.com/ankurah/ankurah?rev=f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0#f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0"
 dependencies = [
  "ankql",
  "ankurah-core",
+ "ankurah-core-types",
  "ankurah-proto",
  "futures",
  "indexmap",
  "serde",
+ "thiserror 2.0.17",
  "tracing",
 ]
 
 [[package]]
 name = "ankurah-storage-indexeddb-wasm"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "81eb4be3c9c17a960c4e69771a96ff48c628145022a6864c7791d041d195d432"
+version = "0.10.0"
+source = "git+https://github.com/ankurah/ankurah?rev=f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0#f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0"
 dependencies = [
  "ankql",
  "ankurah-core",
+ "ankurah-core-types",
  "ankurah-derive",
  "ankurah-proto",
  "ankurah-storage-common",
@@ -194,7 +212,7 @@ dependencies = [
  "serde",
  "serde-wasm-bindgen",
  "serde_json",
- "strum",
+ "strum 0.26.3",
  "thiserror 2.0.17",
  "tokio",
  "tracing",
@@ -208,9 +226,8 @@ dependencies = [
 
 [[package]]
 name = "ankurah-storage-sled"
-version = "0.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "07c296db532e89fb9e35fbe55b495920895a3749ec714e66a5955b32a98f5c12"
+version = "0.10.0"
+source = "git+https://github.com/ankurah/ankurah?rev=f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0#f8e85d2e2399c0c5bdf80ef06498b5f454b87ac0"
 dependencies = [
  "ankql",
  "ankurah-core",
@@ -228,7 +245,6 @@ dependencies = [
  "thiserror 2.0.17",
  "tokio",
  "tracing",
- "ulid",
 ]
 
 [[package]]
@@ -1522,7 +1538,16 @@ version = "0.26.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8fec0f0aef304996cf250b31b5a10dee7980c85da9d759361292b8bca5a18f06"
 dependencies = [
- "strum_macros",
+ "strum_macros 0.26.4",
+]
+
+[[package]]
+name = "strum"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
+dependencies = [
+ "strum_macros 0.27.2",
 ]
 
 [[package]]
@@ -1535,6 +1560,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "rustversion",
+ "syn",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
  "syn",
 ]
 

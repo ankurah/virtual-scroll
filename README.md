@@ -43,7 +43,7 @@ async fn scroll_manager_example() -&gt; Result&lt;(), Box&lt;dyn std::error::Err
     )?;
 
     // Initialize (runs initial query)
-    scroll_manager.start().await;
+    scroll_manager.start().await?;
 
     // Read visible items from the signal
     let visible_set = scroll_manager.visible_set().get();

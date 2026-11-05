@@ -183,7 +183,7 @@ pub async fn clear_all_messages() -> Result<(), JsValue> {
         let m = trx
             .edit::<Message>(msg.entity())
             .map_err(|e| JsValue::from_str(&e.to_string()))?;
-        m.deleted().set(&true)?;
+        m.deleted()?.set(&true)?;
     }
 
     trx.commit()

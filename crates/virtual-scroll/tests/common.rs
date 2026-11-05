@@ -54,7 +54,7 @@ pub async fn durable_sled_setup() -> Result<Context, anyhow::Error> {
         PermissiveAgent::new(),
     );
     node.system.create().await?;
-    Ok(node.context_async(DEFAULT_CONTEXT).await)
+    Ok(node.context_async(DEFAULT_CONTEXT).await?)
 }
 
 /// Create multiple test messages in a single transaction
@@ -72,13 +72,21 @@ pub async fn create_messages(
     Ok(ids)
 }
 
+/// Read a view's field by name through the model's property binding in the entity's system
+fn field_value<V: View>(view: &V, field_name: &str) -> Option<Value> {
+    use ankurah::model::Model;
+    let property = V::Model::descriptor().field_by_name(field_name)?;
+    let property_id = property.resolved_id(view.entity().system_epoch()).ok()?;
+    view.entity().property_value(&property_id).ok().flatten()
+}
+
 /// Extract timestamps from a VisibleSet
 pub fn timestamps<V: ankurah::model::View>(visible_set: &VisibleSet<V>) -> Vec<i64> {
     visible_set
         .items
         .iter()
         .filter_map(|item| {
-            item.entity().value("timestamp").and_then(|v| match v {
+            field_value(item, "timestamp").and_then(|v| match v {
                 Value::I64(ts) => Some(ts),
                 _ => None,
             })
@@ -163,7 +171,7 @@ impl<V: View + Clone + Send + Sync + 'static> MockRenderer<V> {
             .items
             .iter()
             .filter_map(|item| {
-                item.entity().value("height").and_then(|v| match v {
+                field_value(item, "height").and_then(|v| match v {
                     Value::I32(h) => Some(h),
                     _ => None,
                 })
@@ -174,7 +182,7 @@ impl<V: View + Clone + Send + Sync + 'static> MockRenderer<V> {
             .items
             .iter()
             .filter_map(|item| {
-                item.entity().value("timestamp").and_then(|v| match v {
+                field_value(item, "timestamp").and_then(|v| match v {
                     Value::I64(ts) => Some(ts),
                     _ => None,
                 })

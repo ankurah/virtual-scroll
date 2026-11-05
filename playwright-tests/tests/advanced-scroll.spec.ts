@@ -212,7 +212,7 @@ test.describe('Advanced Scroll Tests', () => {
 
     // Live mode: ORDER BY DESC LIMIT live_window
     let selection = await getCurrentSelection(page);
-    expect(selection).toContain('ORDER BY timestamp DESC');
+    expect(selection).toContain('ORDER BY "timestamp" DESC');
     expect(selection).toMatch(/LIMIT \d+/);
 
     // Trigger backward pagination
@@ -227,7 +227,7 @@ test.describe('Advanced Scroll Tests', () => {
     // Backward: timestamp <= cursor ORDER BY DESC
     selection = await getCurrentSelection(page);
     expect(selection).toMatch(/"timestamp" <= \d+/);
-    expect(selection).toContain('ORDER BY timestamp DESC');
+    expect(selection).toContain('ORDER BY "timestamp" DESC');
     expect(selection).toMatch(/LIMIT \d+/);
   });
 
@@ -269,7 +269,7 @@ test.describe('Advanced Scroll Tests', () => {
       // Forward: timestamp >= cursor ORDER BY ASC
       const selection = await getCurrentSelection(page);
       expect(selection).toMatch(/"timestamp" >= \d+/);
-      expect(selection).toContain('ORDER BY timestamp ASC');
+      expect(selection).toContain('ORDER BY "timestamp" ASC');
     }
   });
 

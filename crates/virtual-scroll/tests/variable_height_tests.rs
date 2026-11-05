@@ -32,7 +32,7 @@ async fn test_variable_heights() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: Live mode, 30 items (ts 1030-1059)
@@ -54,7 +54,7 @@ async fn test_variable_heights() -> Result<(), anyhow::Error> {
 
     // Verify pagination occurred
     let selection = sm.current_selection();
-    assert!(selection.contains("ORDER BY timestamp DESC"),
+    assert!(selection.contains("ORDER BY \"timestamp\" DESC"),
         "Backward mode should order DESC: {}", selection);
 
     // More items should have been loaded

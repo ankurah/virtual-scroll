@@ -29,7 +29,7 @@ async fn test_edge_boundaries_smaller_than_live_window() -> Result<(), anyhow::E
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: Only 25 items, has_more_preceding=false (25 < 30)
@@ -77,7 +77,7 @@ async fn test_edge_boundaries_small_dataset() -> Result<(), anyhow::Error> {
     let mut r = MockRenderer::new(sm.clone(), 500);
     tokio::spawn({
         let sm = sm.clone();
-        async move { sm.start().await }
+        async move { sm.start().await.expect("ScrollManager::start failed") }
     });
 
     // Initial: Only 20 items, has_more_preceding=false (20 < 30)
