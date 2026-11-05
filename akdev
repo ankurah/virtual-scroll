@@ -3,7 +3,7 @@
 # Manage local ankurah development dependencies
 # Commands:
 #   enable  - Use local ankurah repo via cargo patch
-#   disable - Use published ankurah crates
+#   disable - Use ankurah from the source the manifests name
 #   bump <version> - Update all ankurah/ankql deps to specified version
 #   (no arg) - Show current status
 
@@ -13,7 +13,10 @@ mkdir -p .cargo
 touch .cargo/config.toml
 
 CONFIG_FILE=".cargo/config.toml"
-PATCH_CONTENT='[patch.crates-io]
+# The source the manifests take ankurah from, which `enable` patches: its git repository
+# while they pin a revision, crates-io when they name a published version
+PATCH_HEADER='[patch."https://github.com/ankurah/ankurah"]'
+PATCH_CONTENT="$PATCH_HEADER"'
 ankurah = { path = "../ankurah/ankurah" }
 ankql = { path = "../ankurah/ankql" }
 ankurah-proto = { path = "../ankurah/proto" }
@@ -22,10 +25,10 @@ ankurah-storage-sled = { path = "../ankurah/storage/sled" }
 ankurah-storage-indexeddb-wasm = { path = "../ankurah/storage/indexeddb-wasm" }'
 
 show_status() {
-    if grep -q "\[patch.crates-io\]" "$CONFIG_FILE"; then
+    if grep -qxF "$PATCH_HEADER" "$CONFIG_FILE"; then
         echo "Status: ENABLED - Using local ankurah dependencies"
     else
-        echo "Status: DISABLED - Using published ankurah crates"
+        echo "Status: DISABLED - Using ankurah from the source the manifests name"
     fi
 }
 
@@ -34,7 +37,7 @@ show_usage() {
     echo ""
     echo "Commands:"
     echo "  enable         - Use local ankurah dependencies"
-    echo "  disable        - Use published ankurah crates"
+    echo "  disable        - Use ankurah from the source the manifests name"
     echo "  bump [version] - Update all ankurah/ankql deps (default: from ../ankurah/RELEASES)"
     echo "  (no arg)       - Show current status"
     echo ""
@@ -80,7 +83,7 @@ do_bump() {
 
 if [ "${1:-}" = "enable" ]; then
     # Check if patch section already exists
-    if grep -q "\[patch.crates-io\]" "$CONFIG_FILE"; then
+    if grep -qxF "$PATCH_HEADER" "$CONFIG_FILE"; then
         echo "Patch section already exists in $CONFIG_FILE"
         exit 0
     fi
@@ -93,8 +96,12 @@ elif [ "${1:-}" = "disable" ]; then
     # Create temporary file
     TMP_FILE=$(mktemp)
 
-    # Remove patch section and strip trailing blank lines
-    sed '/^\[patch.crates-io\]/,/^[[:space:]]*$/d' "$CONFIG_FILE" | sed -e :a -e '/^\n*$/N;/\n$/ba' -e 'P;D' > "$TMP_FILE"
+    # Remove patch section (its header through the next blank line) and strip trailing blank lines
+    awk -v header="$PATCH_HEADER" '
+        $0 == header { removing = 1 }
+        removing { if ($0 ~ /^[[:space:]]*$/) removing = 0; next }
+        { print }
+    ' "$CONFIG_FILE" | sed -e :a -e '/^\n*$/N;/\n$/ba' -e 'P;D' > "$TMP_FILE"
 
     # Move temporary file back to original
     mv "$TMP_FILE" "$CONFIG_FILE"
